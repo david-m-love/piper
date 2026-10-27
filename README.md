@@ -12,4 +12,12 @@ npm start
 
 Then visit `http://localhost:4173` (or the port supplied in `PORT`).
 
+Create the production bundle with:
+
+```sh
+npm run build
+```
+
+Vercel uses `vercel.json` to publish the generated `dist` directory.
+
 The game works with touch, mouse, the on-screen controls, or the up/down arrow keys. Math progress is stored in the browser so the difficulty can adapt over time.
