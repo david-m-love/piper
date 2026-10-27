@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="ocean" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#35dfda"/>
+      <stop offset="1" stop-color="#087ec1"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="url(#ocean)"/>
+  <path d="M10 39c7-17 30-22 44-8-8 9-25 13-38 8l-8 7 3-10-7-6 11 2" fill="#ff62a3" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M31 25c2-8 8-10 11-6l-3 7" fill="#ff62a3" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"/>
+  <circle cx="45" cy="30" r="2" fill="#073763"/>
+</svg>

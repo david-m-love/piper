@@ -304,9 +304,9 @@
     race.objects = race.objects.filter((obj) => obj.x > -90 && !obj.hit);
     race.flash += race.flash > 0 ? -dt : race.flash < 0 ? dt : 0;
     game.opponents.forEach((opponent, i) => {
-      const pace = .24 + i * .018 + Math.random() * .11;
+      const pace = .1 + i * .012 + Math.random() * .07;
       opponent.miles = Math.min(29, opponent.miles + pace * dt);
-      if (opponent.miles > game.miles + 5) opponent.miles -= .3 * dt;
+      if (opponent.miles > game.miles + 3) opponent.miles -= .2 * dt;
     });
   }
 
@@ -468,7 +468,7 @@
 
   function updateRaceHud() {
     $("raceMiles").textContent = game.miles;
-    const place = 1 + game.opponents.filter((o) => o.miles > game.miles).length;
+    const place = 1 + game.opponents.filter((o) => o.miles > game.miles + .75).length;
     $("racePlace").textContent = `${place}${place === 1 ? "st" : place === 2 ? "nd" : place === 3 ? "rd" : "th"}`;
   }
 
