@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#075985" />
+    <title>Piper's Dolphin Dash</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div class="brand"><span aria-hidden="true">🐬</span> Piper's Dolphin Dash</div>
+        <button id="soundButton" class="icon-button" type="button" aria-label="Turn sound off">🔊</button>
+      </header>
+
+      <section id="startScreen" class="screen start-screen">
+        <div class="ambient-bubbles" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <div class="hero-copy">
+          <p class="eyebrow">MATH MAKES YOU FASTER!</p>
+          <h1>Dolphin <span>Dash</span></h1>
+          <p>Power up with math. Splash through glowing hoops. Race your dolphin all the way to 30 miles!</p>
+        </div>
+
+        <div class="dolphin-stage" aria-hidden="true">
+          <div class="sun"></div>
+          <div class="hero-dolphin">🐬</div>
+          <div class="splash splash-one">● ● ●</div>
+          <div class="splash splash-two">● ●</div>
+          <div class="wave wave-one"></div>
+          <div class="wave wave-two"></div>
+        </div>
+
+        <div class="picker-card">
+          <h2>Choose your dolphin</h2>
+          <div id="colorPicker" class="color-picker" role="radiogroup" aria-label="Dolphin color"></div>
+          <label class="name-field">
+            <span>Dolphin name</span>
+            <input id="dolphinName" maxlength="14" value="Bubbles" autocomplete="off" />
+          </label>
+          <button id="startButton" class="primary-button" type="button">Start the race!</button>
+        </div>
+      </section>
+
+      <section id="mathScreen" class="screen math-screen hidden" aria-live="polite">
+        <div class="race-status compact-status">
+          <div><span class="mini-label">YOUR DOLPHIN</span><strong id="mathDolphinName">Bubbles</strong></div>
+          <div class="mile-pill"><span aria-hidden="true">🪙</span> <strong id="mathMiles">0</strong>/30 miles</div>
+        </div>
+
+        <div class="math-card">
+          <div class="round-row">
+            <span id="questionCounter">Question 1 of 6</span>
+            <div class="question-dots" id="questionDots" aria-hidden="true"></div>
+          </div>
+          <p id="mathMessage" class="math-message">Answer quickly to charge your speed boost!</p>
+          <div id="equation" class="equation" aria-label="Math question"></div>
+          <div id="answers" class="answers"></div>
+          <div class="boost-wrap">
+            <div class="boost-label"><span>⚡ Speed boost</span><span id="boostText">Ready!</span></div>
+            <div class="boost-track"><div id="boostFill" class="boost-fill"></div></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="raceScreen" class="screen race-screen hidden">
+        <div class="race-status">
+          <div class="stat"><span class="mini-label">MILES</span><strong><span id="raceMiles">0</span><small>/30</small></strong></div>
+          <div class="timer"><span class="mini-label">FREE SWIM</span><strong id="raceTimer">30</strong></div>
+          <div class="stat align-right"><span class="mini-label">PLACE</span><strong id="racePlace">1st</strong></div>
+        </div>
+        <div class="canvas-wrap">
+          <canvas id="raceCanvas" width="1100" height="620" aria-label="Dolphin race game"></canvas>
+          <div id="raceCallout" class="race-callout">Swipe or use ↑ ↓ to swim!</div>
+        </div>
+        <div class="race-controls" aria-label="Race controls">
+          <button id="moveUp" type="button" aria-label="Swim up">▲</button>
+          <p>Move through coin paths and hoops. Avoid the jellyfish!</p>
+          <button id="moveDown" type="button" aria-label="Swim down">▼</button>
+        </div>
+      </section>
+
+      <section id="finishScreen" class="screen finish-screen hidden" aria-live="polite">
+        <div class="confetti" aria-hidden="true">★　●　★　●　★</div>
+        <div class="finish-dolphin" aria-hidden="true">🐬</div>
+        <p class="eyebrow">AMAZING MATH!</p>
+        <h1 id="finishTitle">You won the Dolphin Cup!</h1>
+        <p id="finishMessage">You raced 30 miles and made your dolphin super speedy.</p>
+        <div class="finish-stats">
+          <div><strong id="correctStat">0</strong><span>math wins</span></div>
+          <div><strong id="coinStat">0</strong><span>coins</span></div>
+          <div><strong id="bestStat">—</strong><span>best streak</span></div>
+        </div>
+        <button id="playAgainButton" class="primary-button" type="button">Race again!</button>
+      </section>
+    </main>
+    <script src="game.js"></script>
+  </body>
+</html>
