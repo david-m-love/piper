@@ -54,14 +54,41 @@
   const ctx = canvas.getContext("2d");
   const mascotCanvas = $("mascot");
   const mctx = mascotCanvas.getContext("2d");
-  const VIEW_W = 1100;
+  let VIEW_W = 1100; // length of the swim (forward); VIEW_H is the width across the lanes
+  let portrait = false;
   const VIEW_H = 620;
   const PIXEL_RATIO = Math.min(2, window.devicePixelRatio || 1);
 
-  function setupCanvas() {
-    canvas.width = Math.round(VIEW_W * PIXEL_RATIO);
-    canvas.height = Math.round(VIEW_H * PIXEL_RATIO);
+  // Phones held upright get a vertical race: the same scene turned a quarter turn, so the dolphin swims up the screen
+  // and the lanes run left to right. Everywhere else it is the usual sideways swim.
+  function layoutRace() {
+    portrait = window.innerHeight > window.innerWidth;
+    const wrap = canvas.parentElement;
+    if (portrait) {
+      const width = Math.min(window.innerWidth - 20, 620);
+      wrap.style.maxWidth = `${width}px`;
+      const top = wrap.getBoundingClientRect().top;
+      const room = Math.max(320, window.innerHeight - top - 125);
+      VIEW_W = Math.max(800, Math.min(1500, Math.round(VIEW_H * room / width)));
+      canvas.style.aspectRatio = `${VIEW_H} / ${VIEW_W}`;
+      canvas.width = Math.round(VIEW_H * PIXEL_RATIO);
+      canvas.height = Math.round(VIEW_W * PIXEL_RATIO);
+    } else {
+      wrap.style.maxWidth = "";
+      VIEW_W = 1100;
+      canvas.style.aspectRatio = "";
+      canvas.width = Math.round(VIEW_W * PIXEL_RATIO);
+      canvas.height = Math.round(VIEW_H * PIXEL_RATIO);
+    }
+    $("moveUp").textContent = portrait ? "◀" : "▲";
+    $("moveDown").textContent = portrait ? "▶" : "▼";
+    $("moveUp").setAttribute("aria-label", portrait ? "Swim left" : "Swim up");
+    $("moveDown").setAttribute("aria-label", portrait ? "Swim right" : "Swim down");
+  }
+
+  function applyView() {
     ctx.setTransform(PIXEL_RATIO, 0, 0, PIXEL_RATIO, 0, 0);
+    if (portrait) { ctx.translate(0, VIEW_W); ctx.rotate(-Math.PI / 2); }
   }
 
   function defaultProfile() {
@@ -429,7 +456,7 @@
     }, 1100 + i * 700));
     setTimeout(() => {
       if (game.hintId !== id) return;
-      say(`${q.a} plus ${q.b} makes ${q.answer}!`);
+      say(`${q.a} plus ${q.b} makes ${q.answer}!`, undefined, true);
       glowAnswer();
     }, 1100 + tokens.length * 700 + 150);
   }
@@ -516,9 +543,9 @@
     }
   }
 
-  function say(text, spoken) {
+  function say(text, spoken, queue = false) {
     $("mascotSay").textContent = text;
-    speak(spoken || text);
+    speak(spoken || text, queue);
   }
 
   function speak(text, queue = false) {
@@ -536,6 +563,7 @@
 
   function startRaceRound() {
     showScreen("raceScreen");
+    layoutRace();
     const n = game.island + 1;
     const lanes = [155, 310, 465];
     game.roundCoins = 0;
@@ -561,7 +589,7 @@
     };
     $("raceIsland").textContent = ISLANDS[game.island].name;
     $("raceCoins").textContent = "0";
-    $("raceCallout").textContent = "Swipe or use ↑ ↓ to swim!";
+    $("raceCallout").textContent = portrait ? "Tap left or right to swim!" : "Swipe or use ↑ ↓ to swim!";
     $("raceCallout").style.opacity = "1";
     setTimeout(() => { if (game.race?.active) $("raceCallout").style.opacity = "0"; }, 2800);
     requestAnimationFrame(raceLoop);
@@ -618,12 +646,12 @@
     const lane = Math.floor(Math.random() * 3);
     const chance = Math.random();
     if (chance < .1) {
-      race.objects.push({ type: "jelly", x: 1170, y: race.lanes[lane], spin: 0, hit: false });
+      race.objects.push({ type: "jelly", x: VIEW_W + 70, y: race.lanes[lane], spin: 0, hit: false });
     } else if (chance < .24) {
-      race.objects.push({ type: "hoop", x: 1170, y: race.lanes[lane], spin: 0, hit: false });
+      race.objects.push({ type: "hoop", x: VIEW_W + 70, y: race.lanes[lane], spin: 0, hit: false });
     } else {
       const count = Math.random() < .3 ? 3 : 1;
-      for (let i = 0; i < count; i++) race.objects.push({ type: "coin", x: 1170 + i * 92, y: race.lanes[lane], spin: i, hit: false });
+      for (let i = 0; i < count; i++) race.objects.push({ type: "coin", x: VIEW_W + 70 + i * 92, y: race.lanes[lane], spin: i, hit: false });
     }
   }
 
@@ -631,6 +659,7 @@
     const race = game.race;
     const n = game.island + 1;
     const now = performance.now() / 1000;
+    applyView();
     const stops = WATER[n - 1];
     const gradient = ctx.createLinearGradient(0, 0, 0, VIEW_H);
     gradient.addColorStop(0, stops[0]); gradient.addColorStop(.14, stops[1]); gradient.addColorStop(.5, stops[2]); gradient.addColorStop(1, stops[3]);
@@ -788,7 +817,7 @@
     if (boost < .5) return;
     ctx.save(); ctx.globalAlpha = Math.min(.42, boost * .05); ctx.strokeStyle = "white"; ctx.lineWidth = 3; ctx.lineCap = "round";
     for (let i = 0; i < 11; i++) {
-      const x = (now * -380 - i * 137 + 1100 * 4) % 1100;
+      const x = (now * -380 - i * 137 + VIEW_W * 4) % VIEW_W;
       const y = 90 + (i * 83 % 450);
       ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - 55 - boost * 3, y); ctx.stroke();
     }
@@ -796,18 +825,19 @@
   }
 
   function drawObject(obj, n) {
+    const upright = () => { if (portrait) ctx.rotate(Math.PI / 2); };
     ctx.save(); ctx.translate(obj.x, obj.y);
     if (obj.type === "coin") {
       const width = 13 + Math.abs(Math.cos(obj.spin)) * 20;
       ctx.fillStyle = "#ffcd2e"; ctx.strokeStyle = "#fff39c"; ctx.lineWidth = 5;
       ctx.beginPath(); ctx.ellipse(0, 0, width, 31, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = "#e6a512"; ctx.font = "900 26px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("★", 0, 2);
+      ctx.fillStyle = "#e6a512"; ctx.font = "900 26px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; upright(); ctx.fillText("★", 0, 2);
     } else if (obj.type === "hoop") {
       ctx.strokeStyle = n >= 8 ? "#ffc400" : "#ffdb39"; ctx.lineWidth = 15; ctx.shadowColor = "#fff59d"; ctx.shadowBlur = n >= 8 ? 26 : 14;
       ctx.beginPath(); ctx.ellipse(0, 0, 35, 68, 0, 0, Math.PI * 2); ctx.stroke();
-      ctx.shadowBlur = 0; ctx.fillStyle = "white"; ctx.font = "900 18px sans-serif"; ctx.textAlign = "center"; ctx.fillText("+2", 0, 6);
+      ctx.shadowBlur = 0; ctx.fillStyle = "white"; ctx.font = "900 18px sans-serif"; ctx.textAlign = "center"; upright(); ctx.fillText("+2", 0, 6);
     } else {
-      ctx.font = "75px serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("🪼", 0, 0);
+      ctx.font = "75px serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; upright(); ctx.fillText("🪼", 0, 0);
     }
     ctx.restore();
   }
@@ -1171,8 +1201,30 @@
   $("resetButton").addEventListener("click", resetProgress);
   $("moveUp").addEventListener("click", () => moveLane(-1));
   $("moveDown").addEventListener("click", () => moveLane(1));
-  canvas.addEventListener("pointerdown", setLaneFromPointer);
-  canvas.addEventListener("pointermove", (event) => { if (event.buttons) setLaneFromPointer(event); });
+  // Upright phone: tap the left or right half to swim one lane that way, or swipe sideways. Otherwise the dolphin follows her finger.
+  let touch = null;
+  canvas.addEventListener("pointerdown", (event) => {
+    if (portrait) touch = { x: event.clientX, y: event.clientY, moved: false };
+    else setLaneFromPointer(event);
+  });
+  canvas.addEventListener("pointermove", (event) => {
+    if (!portrait) { if (event.buttons) setLaneFromPointer(event); return; }
+    if (!touch || touch.moved) return;
+    const dx = event.clientX - touch.x;
+    if (Math.abs(dx) > 24 && Math.abs(dx) > Math.abs(event.clientY - touch.y)) { touch.moved = true; moveLane(dx > 0 ? 1 : -1); }
+  });
+  canvas.addEventListener("pointerup", (event) => {
+    if (!portrait || !touch) return;
+    const wasSwipe = touch.moved;
+    touch = null;
+    if (wasSwipe) return;
+    const rect = canvas.getBoundingClientRect();
+    moveLane(event.clientX < rect.left + rect.width / 2 ? -1 : 1);
+  });
+  canvas.addEventListener("pointercancel", () => { touch = null; });
+  window.addEventListener("resize", () => {
+    if (!$("raceScreen").classList.contains("hidden") && (window.innerHeight > window.innerWidth) !== portrait) layoutRace();
+  });
   mascotCanvas.addEventListener("click", () => {
     const q = game.question;
     if (q && !game.locked) speak(`${q.a} plus ${q.b}. How many in all?`);
@@ -1193,8 +1245,8 @@
   });
   window.addEventListener("keydown", (event) => {
     if (event.target instanceof HTMLInputElement) return;
-    if (event.key === "ArrowUp" || event.key === "w") { event.preventDefault(); moveLane(-1); }
-    if (event.key === "ArrowDown" || event.key === "s") { event.preventDefault(); moveLane(1); }
+    if (["ArrowUp", "ArrowLeft", "w", "a"].includes(event.key)) { event.preventDefault(); moveLane(-1); }
+    if (["ArrowDown", "ArrowRight", "s", "d"].includes(event.key)) { event.preventDefault(); moveLane(1); }
   });
     $("soundButton").addEventListener("click", () => {
     game.sound = !game.sound;
@@ -1226,7 +1278,7 @@
     if (document.hidden) getAudio.audio.suspend(); else if (game.sound) getAudio.audio.resume();
   });
 
-  setupCanvas();
+  layoutRace();
   initColors();
   // Come back to where she left off: straight to the map if she has played before.
   if (Object.keys(game.profile.facts).length || Object.keys(game.profile.done).length) showMap();
