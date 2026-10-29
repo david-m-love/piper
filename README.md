@@ -20,4 +20,14 @@ npm run build
 
 Vercel uses `vercel.json` to publish the generated `dist` directory.
 
-The game works with touch, mouse, the on-screen controls, or the up/down arrow keys. Math progress is stored in the browser so the difficulty can adapt over time.
+## Controls
+
+- **Phone / iPad (touch):** math questions show four big answer buttons; swim by swiping on the water or using the ▲ ▼ buttons.
+- **Computer (mouse + keyboard):** she types the answer (auto-checked as soon as the digits are in, or press Enter) and swims with the ↑ ↓ arrow keys (W/S also work).
+- Add `?input=keys` or `?input=choices` to the URL to force one mode.
+
+Math progress is stored in the browser so the difficulty can adapt over time.
+
+## Home-screen app
+
+The game is an installable web app (`manifest.webmanifest`, `sw.js`, icons in `assets/`). On iPhone/iPad: open the site in Safari, tap Share, then **Add to Home Screen**. After the first visit it also works offline.
