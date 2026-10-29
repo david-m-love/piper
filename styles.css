@@ -272,3 +272,8 @@ canvas#mascot { background: transparent; aspect-ratio: auto; width: 150px; heigh
 @media (min-width: 900px) and (min-height: 760px) { canvas#mascot { width: 210px; height: 157px; } }
 @media (max-width: 560px) { canvas#mascot { width: 118px; height: 88px; } }
 @media (max-height: 720px) and (orientation: landscape) { canvas#mascot { width: 100px; height: 75px; } }
+
+.top-actions { display: flex; gap: 8px; }
+.icon-button { position: relative; }
+.icon-button.off { opacity: .55; }
+.icon-button.off::after { content: ""; position: absolute; left: 20%; right: 20%; top: 50%; border-top: 3px solid #ff8aa6; border-radius: 2px; transform: rotate(-40deg); }

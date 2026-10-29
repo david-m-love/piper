@@ -65,7 +65,7 @@
   }
 
   function defaultProfile() {
-    return { v: 2, name: "Bubbles", color: 0, coins: 0, correct: 0, sound: true, done: {}, facts: {} };
+    return { v: 2, name: "Bubbles", color: 0, coins: 0, correct: 0, sound: true, music: true, done: {}, facts: {} };
   }
 
   function loadProfile() {
@@ -85,6 +85,7 @@
     selectedColor: 0,
     name: "Bubbles",
     sound: true,
+    music: true,
     island: 0,
     questionIndex: 0,
     question: null,
@@ -104,12 +105,14 @@
   game.selectedColor = Math.min(COLORS.length - 1, game.profile.color || 0);
   game.name = game.profile.name || "Bubbles";
   game.sound = game.profile.sound !== false;
+  game.music = game.profile.music !== false;
 
   /* ---------- screens ---------- */
 
   function showScreen(id) {
     screens.forEach((screen) => $(screen).classList.toggle("hidden", screen !== id));
     window.scrollTo(0, 0);
+    setMusicLevel(id === "mathScreen" ? .45 : 1);
   }
 
   function initColors() {
@@ -127,6 +130,7 @@
     $("dolphinName").value = game.name;
     $("soundButton").textContent = game.sound ? "🔊" : "🔇";
     $("soundButton").setAttribute("aria-label", game.sound ? "Turn sound off" : "Turn sound on");
+    updateMusicButton();
   }
 
   function selectColor(index) {
@@ -176,6 +180,7 @@
     game.justMastered = null;
     renderMap(unlockedNow === null ? -1 : unlockedNow + 1);
     showScreen("mapScreen");
+    if (unlockedNow !== null) sparkle(8);
     const current = document.querySelector(".island.current");
     if (current) current.scrollIntoView({ block: "center" });
   }
@@ -222,7 +227,6 @@
     $("mathCoins").textContent = game.profile.coins;
     $("islandLabel").textContent = ISLANDS[i].name.toUpperCase();
     showScreen("mathScreen");
-    tone(520, .08);
     renderQuestion();
   }
 
@@ -356,7 +360,7 @@
         el.disabled = true;
         el.classList.add("ruled-out");
       }
-      tone(250, .12);
+      oops();
       setMascot("oops");
       if (game.attempts === 1) {
         say(pick(OOPS));
@@ -403,8 +407,7 @@
     say(praise);
     setMascot("cheer");
     burstStars();
-    chirp();
-    setTimeout(() => tone(980, .12), 140);
+    if (game.justMastered === game.island) fanfare(); else { chirp(); sparkle(4); }
     game.nextTimer = setTimeout(() => {
       game.questionIndex += 1;
       if (game.justMastered !== null || game.questionIndex >= ROUND_LENGTH) startRaceRound(); else renderQuestion();
@@ -421,7 +424,7 @@
       if (game.hintId !== id) return;
       token.classList.add("counted");
       token.dataset.n = i + 1;
-      tone(400 + i * 45, .12);
+      note(SCALE[Math.min(i, SCALE.length - 1)], 0, .3, "triangle", .07);
       speak(String(i + 1), true);
     }, 1100 + i * 700));
     setTimeout(() => {
@@ -599,11 +602,11 @@
       if (obj.hit || Math.abs(obj.x - dolphinX) > 54 || Math.abs(obj.y - race.playerY) > 55) return;
       obj.hit = true;
       if (obj.type === "coin") {
-        game.roundCoins += 1; race.flash = .25; tone(740, .06);
+        game.roundCoins += 1; race.flash = .25; coinPing();
       } else if (obj.type === "hoop") {
-        game.roundCoins += 2; race.flash = .4; tone(780, .07); setTimeout(() => tone(980, .09), 70);
+        game.roundCoins += 2; race.flash = .4; hoopPing();
       } else {
-        game.boost = Math.max(0, game.boost - .6); race.flash = -.35; tone(150, .14);
+        game.boost = Math.max(0, game.boost - .6); race.flash = -.35; boing();
       }
     });
     race.objects = race.objects.filter((obj) => obj.x > -90 && !obj.hit);
@@ -864,23 +867,25 @@
     $("correctStat").textContent = game.profile.correct;
     $("coinStat").textContent = game.profile.coins;
     $("islandStat").textContent = ISLANDS.length;
-    tone(520, .12); setTimeout(() => tone(660, .12), 130); setTimeout(() => tone(880, .25), 260);
-    chirp();
+    fanfare();
   }
 
   function moveLane(direction) {
     if (!game.race?.active) return;
     const race = game.race;
     const nearest = race.lanes.reduce((best, y, i) => Math.abs(y - race.targetY) < Math.abs(race.lanes[best] - race.targetY) ? i : best, 0);
+    const before = race.targetY;
     race.targetY = race.lanes[Math.max(0, Math.min(2, nearest + direction))];
-    tone(330, .04);
+    if (race.targetY !== before) splash();
   }
 
   function setLaneFromPointer(event) {
     if (!game.race?.active) return;
     const rect = canvas.getBoundingClientRect();
     const y = (event.clientY - rect.top) * VIEW_H / rect.height;
+    const before = game.race.targetY;
     game.race.targetY = game.race.lanes.reduce((best, lane) => Math.abs(lane - y) < Math.abs(best - y) ? lane : best);
+    if (game.race.targetY !== before) splash();
   }
 
   function shuffle(items) {
@@ -892,46 +897,269 @@
   }
 
   /* ---------- sound ---------- */
+  // Everything is made with the Web Audio API (no sound files), so it also works offline.
+
+  const SCALE = [523.25, 587.33, 659.25, 783.99, 880, 1046.5, 1174.66, 1318.51, 1567.98, 1760]; // C major pentatonic
 
   function getAudio() {
-    const AudioContext = window.AudioContext || window.webkitAudioContext;
-    const audio = getAudio.audio || (getAudio.audio = new AudioContext());
-    if (audio.state === "suspended") audio.resume();
-    return audio;
+    if (!getAudio.audio) {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      const audio = getAudio.audio = new AudioContext();
+      getAudio.sfx = audio.createGain();
+      getAudio.sfx.connect(audio.destination);
+      getAudio.music = audio.createGain();
+      getAudio.music.gain.value = 0;
+      getAudio.music.connect(audio.destination);
+    }
+    if (getAudio.audio.state === "suspended") getAudio.audio.resume();
+    return getAudio.audio;
   }
 
-  function tone(frequency, duration) {
+  function noiseBuffer(audio) {
+    if (!noiseBuffer.buffer) {
+      const buffer = audio.createBuffer(1, audio.sampleRate * 2, audio.sampleRate);
+      const data = buffer.getChannelData(0);
+      let last = 0;
+      for (let i = 0; i < data.length; i++) {
+        last = (last + .02 * (Math.random() * 2 - 1)) / 1.02; // brown noise: soft and rumbly like water
+        data[i] = last * 3.5;
+      }
+      noiseBuffer.buffer = buffer;
+    }
+    return noiseBuffer.buffer;
+  }
+
+  function note(frequency, delay = 0, duration = .25, type = "sine", volume = .07) {
     if (!game.sound) return;
     try {
       const audio = getAudio();
+      const t = audio.currentTime + delay;
       const oscillator = audio.createOscillator();
       const gain = audio.createGain();
-      oscillator.frequency.value = frequency;
-      oscillator.type = "sine";
-      gain.gain.setValueAtTime(.055, audio.currentTime);
-      gain.gain.exponentialRampToValueAtTime(.001, audio.currentTime + duration);
-      oscillator.connect(gain).connect(audio.destination);
-      oscillator.start(); oscillator.stop(audio.currentTime + duration);
+      oscillator.type = type;
+      oscillator.frequency.setValueAtTime(frequency, t);
+      gain.gain.setValueAtTime(.0001, t);
+      gain.gain.exponentialRampToValueAtTime(volume, t + .012);
+      gain.gain.exponentialRampToValueAtTime(.0001, t + duration);
+      oscillator.connect(gain).connect(getAudio.sfx);
+      oscillator.start(t); oscillator.stop(t + duration + .03);
     } catch (_) { /* Sound is optional. */ }
   }
 
-  // A happy dolphin chirp: a quick swoop up and back down.
+  function tone(frequency, duration) { note(frequency, 0, duration, "sine", .055); }
+
+  // A whistle that glides from one pitch to another, with a little wobble and a quieter overtone.
+  function whistle(from, to, delay, duration, volume = .06) {
+    if (!game.sound) return;
+    try {
+      const audio = getAudio();
+      const t = audio.currentTime + delay;
+      [[1, volume], [2, volume * .3]].forEach(([multiple, level]) => {
+        const oscillator = audio.createOscillator();
+        const gain = audio.createGain();
+        const wobble = audio.createOscillator();
+        const wobbleDepth = audio.createGain();
+        oscillator.type = "sine";
+        oscillator.frequency.setValueAtTime(from * multiple, t);
+        oscillator.frequency.exponentialRampToValueAtTime(to * multiple, t + duration * .8);
+        wobble.frequency.value = 26;
+        wobbleDepth.gain.value = 22 * multiple;
+        wobble.connect(wobbleDepth).connect(oscillator.frequency);
+        gain.gain.setValueAtTime(.0001, t);
+        gain.gain.exponentialRampToValueAtTime(level, t + .02);
+        gain.gain.exponentialRampToValueAtTime(.0001, t + duration);
+        oscillator.connect(gain).connect(getAudio.sfx);
+        oscillator.start(t); wobble.start(t);
+        oscillator.stop(t + duration + .03); wobble.stop(t + duration + .03);
+      });
+    } catch (_) { /* Sound is optional. */ }
+  }
+
+  function clicks(count, delay) {
+    if (!game.sound) return;
+    try {
+      const audio = getAudio();
+      for (let i = 0; i < count; i++) {
+        const t = audio.currentTime + delay + i * .045;
+        const source = audio.createBufferSource();
+        const filter = audio.createBiquadFilter();
+        const gain = audio.createGain();
+        source.buffer = noiseBuffer(audio);
+        filter.type = "bandpass"; filter.frequency.value = 3200; filter.Q.value = 4;
+        gain.gain.setValueAtTime(.35, t);
+        gain.gain.exponentialRampToValueAtTime(.001, t + .02);
+        source.connect(filter).connect(gain).connect(getAudio.sfx);
+        source.start(t, Math.random(), .03);
+      }
+    } catch (_) { /* Sound is optional. */ }
+  }
+
+  // The happy dolphin call: two whistles and a few clicks.
   function chirp() {
+    whistle(1000, 2400, 0, .11);
+    whistle(2400, 1500, .12, .15);
+    clicks(3, .32);
+  }
+
+  function pop() {
     if (!game.sound) return;
     try {
       const audio = getAudio();
       const t = audio.currentTime;
       const oscillator = audio.createOscillator();
       const gain = audio.createGain();
-      oscillator.type = "sine";
-      oscillator.frequency.setValueAtTime(900, t);
-      oscillator.frequency.exponentialRampToValueAtTime(2300, t + .09);
-      oscillator.frequency.exponentialRampToValueAtTime(1300, t + .2);
-      gain.gain.setValueAtTime(.07, t);
-      gain.gain.exponentialRampToValueAtTime(.001, t + .24);
-      oscillator.connect(gain).connect(audio.destination);
-      oscillator.start(t); oscillator.stop(t + .25);
+      oscillator.frequency.setValueAtTime(320, t);
+      oscillator.frequency.exponentialRampToValueAtTime(1100, t + .06);
+      gain.gain.setValueAtTime(.09, t);
+      gain.gain.exponentialRampToValueAtTime(.001, t + .08);
+      oscillator.connect(gain).connect(getAudio.sfx);
+      oscillator.start(t); oscillator.stop(t + .1);
     } catch (_) { /* Sound is optional. */ }
+  }
+
+  function splash() {
+    if (!game.sound) return;
+    try {
+      const audio = getAudio();
+      const t = audio.currentTime;
+      const source = audio.createBufferSource();
+      const filter = audio.createBiquadFilter();
+      const gain = audio.createGain();
+      source.buffer = noiseBuffer(audio);
+      filter.type = "bandpass"; filter.Q.value = .8;
+      filter.frequency.setValueAtTime(2400, t);
+      filter.frequency.exponentialRampToValueAtTime(600, t + .3);
+      gain.gain.setValueAtTime(.0001, t);
+      gain.gain.exponentialRampToValueAtTime(.5, t + .04);
+      gain.gain.exponentialRampToValueAtTime(.001, t + .32);
+      source.connect(filter).connect(gain).connect(getAudio.sfx);
+      source.start(t, Math.random(), .35);
+    } catch (_) { /* Sound is optional. */ }
+  }
+
+  // A springy "boing" for bumping a jellyfish.
+  function boing() {
+    if (!game.sound) return;
+    try {
+      const audio = getAudio();
+      const t = audio.currentTime;
+      const oscillator = audio.createOscillator();
+      const gain = audio.createGain();
+      const wobble = audio.createOscillator();
+      const wobbleDepth = audio.createGain();
+      oscillator.type = "triangle";
+      oscillator.frequency.setValueAtTime(260, t);
+      oscillator.frequency.exponentialRampToValueAtTime(100, t + .45);
+      wobble.frequency.value = 15;
+      wobbleDepth.gain.value = 45;
+      wobble.connect(wobbleDepth).connect(oscillator.frequency);
+      gain.gain.setValueAtTime(.12, t);
+      gain.gain.exponentialRampToValueAtTime(.001, t + .5);
+      oscillator.connect(gain).connect(getAudio.sfx);
+      oscillator.start(t); wobble.start(t);
+      oscillator.stop(t + .55); wobble.stop(t + .55);
+    } catch (_) { /* Sound is optional. */ }
+  }
+
+  function oops() { note(330, 0, .2, "sine", .05); note(262, .17, .3, "sine", .05); }
+  function coinPing() { note(988, 0, .12, "sine", .06); note(1319, .07, .22, "sine", .06); }
+  function hoopPing() { [784, 988, 1175, 1568].forEach((f, i) => note(f, i * .06, .22, "triangle", .06)); }
+
+  // A run of twinkling notes going up.
+  function sparkle(count = 6) {
+    for (let i = 0; i < count; i++) {
+      note(SCALE[Math.min(i + 2, SCALE.length - 1)], i * .07, .3, "triangle", .045);
+      note(SCALE[Math.min(i + 2, SCALE.length - 1)] * 2, i * .07 + .02, .18, "sine", .02);
+    }
+  }
+
+  // The big one: for mastering an island or winning the cup.
+  function fanfare() {
+    sparkle(9);
+    [[523.25, 659.25, 783.99], [659.25, 783.99, 1046.5]].forEach((chord, i) => chord.forEach((f) => note(f, .65 + i * .35, .8, "triangle", .05)));
+    whistle(1100, 2500, .7, .12);
+    whistle(1500, 2800, 1.05, .12);
+    whistle(2800, 1400, 1.4, .2);
+    clicks(4, 1.7);
+  }
+
+  /* Calm ocean background: slow waves (filtered noise), little bubbles, and the odd soft twinkle. */
+
+  const ambience = { on: false, nodes: [], timer: 0, level: 1 };
+
+  function musicPlaying() { return game.sound && game.music; }
+
+  function startAmbience() {
+    if (ambience.on || !musicPlaying() || !("AudioContext" in window || "webkitAudioContext" in window)) return;
+    try {
+      const audio = getAudio();
+      const source = audio.createBufferSource();
+      const lowpass = audio.createBiquadFilter();
+      const swell = audio.createGain();
+      const wave = audio.createOscillator();
+      const waveDepth = audio.createGain();
+      const waveVolume = audio.createGain();
+      source.buffer = noiseBuffer(audio); source.loop = true;
+      lowpass.type = "lowpass"; lowpass.frequency.value = 520;
+      wave.frequency.value = .11; waveDepth.gain.value = 260; wave.connect(waveDepth).connect(lowpass.frequency);
+      swell.gain.value = .55;
+      waveVolume.gain.value = .22; wave.connect(waveVolume).connect(swell.gain);
+      source.connect(lowpass).connect(swell).connect(getAudio.music);
+      source.start(); wave.start();
+      ambience.nodes = [source, wave];
+      ambience.on = true;
+      setMusicLevel(ambience.level);
+      const bubble = () => {
+        if (!ambience.on) return;
+        if (!document.hidden) {
+          const f = 500 + Math.random() * 700;
+          const t = audio.currentTime;
+          const oscillator = audio.createOscillator();
+          const gain = audio.createGain();
+          oscillator.frequency.setValueAtTime(f, t);
+          oscillator.frequency.exponentialRampToValueAtTime(f * 1.9, t + .07);
+          gain.gain.setValueAtTime(.05, t);
+          gain.gain.exponentialRampToValueAtTime(.001, t + .09);
+          oscillator.connect(gain).connect(getAudio.music);
+          oscillator.start(t); oscillator.stop(t + .1);
+          if (Math.random() < .25) {
+            const n = pick(SCALE);
+            const chime = audio.createOscillator();
+            const chimeGain = audio.createGain();
+            chime.type = "sine"; chime.frequency.value = n / 2;
+            chimeGain.gain.setValueAtTime(.0001, t + .05);
+            chimeGain.gain.exponentialRampToValueAtTime(.05, t + .12);
+            chimeGain.gain.exponentialRampToValueAtTime(.0001, t + 2.2);
+            chime.connect(chimeGain).connect(getAudio.music);
+            chime.start(t + .05); chime.stop(t + 2.3);
+          }
+        }
+        ambience.timer = setTimeout(bubble, 900 + Math.random() * 1800);
+      };
+      bubble();
+    } catch (_) { ambience.on = false; }
+  }
+
+  function stopAmbience() {
+    ambience.on = false;
+    clearTimeout(ambience.timer);
+    if (getAudio.music) getAudio.music.gain.setTargetAtTime(0, getAudio.audio.currentTime, .15);
+    const nodes = ambience.nodes;
+    ambience.nodes = [];
+    setTimeout(() => nodes.forEach((node) => { try { node.stop(); } catch (_) { /* already stopped */ } }), 600);
+  }
+
+  // The music is a little quieter on the math screen so she can hear her dolphin.
+  function setMusicLevel(level) {
+    ambience.level = level;
+    if (getAudio.music && ambience.on) getAudio.music.gain.setTargetAtTime(.5 * level, getAudio.audio.currentTime, .4);
+  }
+
+  function updateMusicButton() {
+    const on = musicPlaying();
+    $("musicButton").textContent = "🎵";
+    $("musicButton").classList.toggle("off", !on);
+    $("musicButton").setAttribute("aria-label", game.music ? "Turn music off" : "Turn music on");
   }
 
   /* ---------- wiring ---------- */
@@ -968,14 +1196,34 @@
     if (event.key === "ArrowUp" || event.key === "w") { event.preventDefault(); moveLane(-1); }
     if (event.key === "ArrowDown" || event.key === "s") { event.preventDefault(); moveLane(1); }
   });
-  window.addEventListener("pointerdown", () => { if (getAudio.audio?.state === "suspended") getAudio.audio.resume(); }, { passive: true });
-  $("soundButton").addEventListener("click", () => {
+    $("soundButton").addEventListener("click", () => {
     game.sound = !game.sound;
     game.profile.sound = game.sound;
     saveProfile();
     if (!game.sound && "speechSynthesis" in window) speechSynthesis.cancel();
     $("soundButton").textContent = game.sound ? "🔊" : "🔇";
     $("soundButton").setAttribute("aria-label", game.sound ? "Turn sound off" : "Turn sound on");
+    if (game.sound) startAmbience(); else stopAmbience();
+    updateMusicButton();
+  });
+  $("musicButton").addEventListener("click", () => {
+    game.music = !game.music;
+    game.profile.music = game.music;
+    saveProfile();
+    if (musicPlaying()) startAmbience(); else stopAmbience();
+    updateMusicButton();
+  });
+  // Browsers only allow sound after a tap, so the ocean starts on her first tap.
+  const unlockAudio = () => { try { getAudio(); startAmbience(); } catch (_) { /* Sound is optional. */ } };
+  document.addEventListener("pointerup", unlockAudio, { passive: true });
+  document.addEventListener("keydown", unlockAudio);
+  document.addEventListener("pointerdown", (event) => {
+    const button = event.target.closest?.("button");
+    if (button && !["moveUp", "moveDown"].includes(button.id)) pop();
+  }, { passive: true });
+  document.addEventListener("visibilitychange", () => {
+    if (!getAudio.audio) return;
+    if (document.hidden) getAudio.audio.suspend(); else if (game.sound) getAudio.audio.resume();
   });
 
   setupCanvas();
