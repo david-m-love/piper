@@ -16,7 +16,7 @@
   const ctx = canvas.getContext("2d");
   const VIEW_W = 1100;
   const VIEW_H = 620;
-  const PIXEL_RATIO = Math.min(2.5, window.devicePixelRatio || 1);
+  const PIXEL_RATIO = Math.min(2, window.devicePixelRatio || 1);
 
   function setupCanvas() {
     canvas.width = Math.round(VIEW_W * PIXEL_RATIO);
@@ -125,13 +125,24 @@
       });
       fact = weighted[Math.floor(Math.random() * weighted.length)];
     }
+    return { ...fact, choices: shuffle([fact.answer, ...makeDistractors(fact)]) };
+  }
+
+  // Three wrong answers: the common slips first (one more/less, forgetting to add the second number), then near misses.
+  function makeDistractors(fact) {
     const wrong = new Set();
-    while (wrong.size < 2) {
-      const offset = Math.floor(Math.random() * 7) - 3;
-      const candidate = Math.max(0, fact.answer + (offset || 1));
-      if (candidate !== fact.answer) wrong.add(candidate);
-    }
-    return { ...fact, choices: shuffle([fact.answer, ...wrong]) };
+    const consider = (n) => { if (n >= 0 && n !== fact.answer && wrong.size < 3) wrong.add(n); };
+    shuffle([fact.answer - 1, fact.answer + 1, Math.max(fact.a, fact.b)]).forEach(consider);
+    shuffle([fact.answer - 2, fact.answer + 2, fact.answer + 3, fact.answer - 3, fact.answer + 4]).forEach(consider);
+    return [...wrong];
+  }
+
+  // Phones and iPads get big answer buttons; a computer with a mouse and keyboard has her type the number.
+  function useKeyboard() {
+    const forced = new URLSearchParams(location.search).get("input");
+    if (forced === "keys") return true;
+    if (forced === "choices") return false;
+    return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
   }
 
   function startMathRound() {
@@ -150,14 +161,25 @@
     $("equation").textContent = `${game.question.a} + ${game.question.b} = ?`;
     $("mathMessage").textContent = game.questionIndex === 0 ? "Answer quickly to charge your speed boost!" : encouragement();
     $("answers").replaceChildren();
-    game.question.choices.forEach((value) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "answer-button";
-      button.textContent = value;
-      button.addEventListener("click", () => checkAnswer(value, button));
-      $("answers").appendChild(button);
-    });
+    const typing = useKeyboard();
+    $("answers").classList.toggle("hidden", typing);
+    $("typeAnswer").classList.toggle("hidden", !typing);
+    if (typing) {
+      const input = $("answerInput");
+      input.value = "";
+      input.disabled = false;
+      input.className = "";
+      input.focus();
+    } else {
+      game.question.choices.forEach((value) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "answer-button";
+        button.textContent = value;
+        button.addEventListener("click", () => checkAnswer(value, button));
+        $("answers").appendChild(button);
+      });
+    }
     renderDots();
     animateBoostTimer();
   }
@@ -185,13 +207,14 @@
   }
 
   function checkAnswer(value, button) {
-    if (button.disabled) return;
+    if (button.disabled || !game.question) return;
     const q = game.question;
     const key = `${q.a}+${q.b}`;
     const record = game.profile.facts[key] || { correct: 0, wrong: 0 };
     if (value !== q.answer) {
       button.classList.add("try-again");
       setTimeout(() => button.classList.remove("try-again"), 350);
+      if (button === $("answerInput")) button.value = "";
       record.wrong += 1;
       game.streak = 0;
       game.profile.focus = key;
@@ -202,6 +225,7 @@
     }
 
     document.querySelectorAll(".answer-button").forEach((item) => { item.disabled = true; });
+    $("answerInput").disabled = true;
     button.classList.add("correct");
     const seconds = (performance.now() - game.questionStarted) / 1000;
     game.boost += Math.max(.5, 1.6 - seconds / 10);
@@ -253,8 +277,9 @@
       world: 0,
       flash: 0
     };
+    $("raceCallout").textContent = "Swipe or use ↑ ↓ to swim!";
     $("raceCallout").style.opacity = "1";
-    setTimeout(() => { if (game.race) $("raceCallout").style.opacity = "0"; }, 2800);
+    setTimeout(() => { if (game.race?.active) $("raceCallout").style.opacity = "0"; }, 2800);
     requestAnimationFrame(raceLoop);
   }
 
@@ -523,6 +548,7 @@
     try {
       const AudioContext = window.AudioContext || window.webkitAudioContext;
       const audio = tone.audio || (tone.audio = new AudioContext());
+      if (audio.state === "suspended") audio.resume();
       const oscillator = audio.createOscillator();
       const gain = audio.createGain();
       oscillator.frequency.value = frequency;
@@ -540,13 +566,26 @@
   $("moveDown").addEventListener("click", () => moveLane(1));
   canvas.addEventListener("pointerdown", setLaneFromPointer);
   canvas.addEventListener("pointermove", (event) => { if (event.buttons) setLaneFromPointer(event); });
+  $("typeAnswer").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const input = $("answerInput");
+    if (input.value !== "") checkAnswer(Number(input.value), input);
+  });
+  $("answerInput").addEventListener("input", (event) => {
+    const input = event.target;
+    input.value = input.value.replace(/\D/g, "");
+    // Single-digit answers are checked as soon as the digit is typed; bigger ones when every digit is in (or on Enter).
+    if (input.value.length >= String(game.question.answer).length) checkAnswer(Number(input.value), input);
+  });
+  $("mathScreen").addEventListener("pointerup", () => {
+    if (!$("typeAnswer").classList.contains("hidden") && !$("answerInput").disabled) $("answerInput").focus();
+  });
   window.addEventListener("keydown", (event) => {
+    if (event.target instanceof HTMLInputElement) return;
     if (event.key === "ArrowUp" || event.key === "w") { event.preventDefault(); moveLane(-1); }
     if (event.key === "ArrowDown" || event.key === "s") { event.preventDefault(); moveLane(1); }
-    if (!$("mathScreen").classList.contains("hidden") && ["1", "2", "3"].includes(event.key)) {
-      document.querySelectorAll(".answer-button")[Number(event.key) - 1]?.click();
-    }
   });
+  window.addEventListener("pointerdown", () => { if (tone.audio?.state === "suspended") tone.audio.resume(); }, { passive: true });
   $("soundButton").addEventListener("click", () => {
     game.sound = !game.sound;
     $("soundButton").textContent = game.sound ? "🔊" : "🔇";
@@ -555,4 +594,7 @@
 
   setupCanvas();
   initColors();
+  if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+    window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+  }
 })();
