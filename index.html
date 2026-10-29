@@ -19,7 +19,10 @@
     <main class="app-shell">
       <header class="topbar">
         <div class="brand"><span aria-hidden="true">🐬</span> Piper's Dolphin Dash</div>
-        <button id="soundButton" class="icon-button" type="button" aria-label="Turn sound off">🔊</button>
+        <div class="top-actions">
+          <button id="musicButton" class="icon-button" type="button" aria-label="Turn music off">🎵</button>
+          <button id="soundButton" class="icon-button" type="button" aria-label="Turn sound off">🔊</button>
+        </div>
       </header>
 
       <section id="startScreen" class="screen start-screen">
@@ -27,16 +30,7 @@
         <div class="hero-copy">
           <p class="eyebrow">MATH MAKES YOU FASTER!</p>
           <h1>Dolphin <span>Dash</span></h1>
-          <p>Power up with math. Splash through glowing hoops. Race your dolphin all the way to 30 miles!</p>
-        </div>
-
-        <div class="dolphin-stage" aria-hidden="true">
-          <div class="sun"></div>
-          <div class="hero-dolphin">🐬</div>
-          <div class="splash splash-one">● ● ●</div>
-          <div class="splash splash-two">● ●</div>
-          <div class="wave wave-one"></div>
-          <div class="wave wave-two"></div>
+          <p>Power up with math. Splash through glowing hoops. Explore all 8 islands!</p>
         </div>
 
         <div class="picker-card">
@@ -46,14 +40,31 @@
             <span>Dolphin name</span>
             <input id="dolphinName" maxlength="14" value="Bubbles" autocomplete="off" />
           </label>
-          <button id="startButton" class="primary-button" type="button">Start the race!</button>
+          <button id="startButton" class="primary-button" type="button">Let's go!</button>
+        </div>
+      </section>
+
+      <section id="mapScreen" class="screen map-screen hidden">
+        <div class="map-head">
+          <div>
+            <p class="eyebrow">ISLAND MAP</p>
+            <h2 id="mapTitle">Bubbles's adventure</h2>
+          </div>
+          <div class="mile-pill"><span aria-hidden="true">🪙</span> <strong id="mapCoins">0</strong> coins</div>
+        </div>
+        <div id="mapBanner" class="map-banner hidden" aria-live="polite"></div>
+        <div id="islandList" class="island-list"></div>
+        <div class="map-foot">
+          <button id="homeButton" class="link-button" type="button">Change dolphin</button>
+          <button id="resetButton" class="link-button" type="button">Start over</button>
         </div>
       </section>
 
       <section id="mathScreen" class="screen math-screen hidden" aria-live="polite">
         <div class="race-status compact-status">
-          <div><span class="mini-label">YOUR DOLPHIN</span><strong id="mathDolphinName">Bubbles</strong></div>
-          <div class="mile-pill"><span aria-hidden="true">🪙</span> <strong id="mathMiles">0</strong>/30 miles</div>
+          <button id="backToMap" class="map-button" type="button">🗺️ Map</button>
+          <div class="center-name"><span class="mini-label" id="islandLabel">BUBBLE BAY</span><strong id="mathDolphinName">Bubbles</strong></div>
+          <div class="mile-pill"><span aria-hidden="true">🪙</span> <strong id="mathCoins">0</strong></div>
         </div>
 
         <div class="math-card">
@@ -61,7 +72,13 @@
             <span id="questionCounter">Question 1 of 6</span>
             <div class="question-dots" id="questionDots" aria-hidden="true"></div>
           </div>
-          <p id="mathMessage" class="math-message">Answer quickly to charge your speed boost!</p>
+
+          <div class="coach">
+            <canvas id="mascot" width="360" height="270" aria-label="Your dolphin. Tap to hear the question again."></canvas>
+            <div id="mascotSay" class="speech">How many in all?</div>
+          </div>
+
+          <div id="tokens" class="tokens" aria-hidden="true"></div>
           <div id="equation" class="equation" aria-label="Math question"></div>
           <div id="answers" class="answers"></div>
           <form id="typeAnswer" class="type-answer hidden" autocomplete="off">
@@ -78,9 +95,9 @@
 
       <section id="raceScreen" class="screen race-screen hidden">
         <div class="race-status">
-          <div class="stat"><span class="mini-label">MILES</span><strong><span id="raceMiles">0</span><small>/30</small></strong></div>
-          <div class="timer"><span class="mini-label">FREE SWIM</span><strong id="raceTimer">30</strong></div>
-          <div class="stat align-right"><span class="mini-label">PLACE</span><strong id="racePlace">1st</strong></div>
+          <div class="stat"><span class="mini-label">COINS</span><strong id="raceCoins">0</strong></div>
+          <div class="timer"><span class="mini-label">FREE SWIM</span><strong id="raceTimer">25</strong></div>
+          <div class="stat align-right"><span class="mini-label">ISLAND</span><strong id="raceIsland" class="island-name">Bubble Bay</strong></div>
         </div>
         <div class="canvas-wrap">
           <canvas id="raceCanvas" width="1100" height="620" aria-label="Dolphin race game"></canvas>
@@ -88,7 +105,7 @@
         </div>
         <div class="race-controls" aria-label="Race controls">
           <button id="moveUp" type="button" aria-label="Swim up">▲</button>
-          <p>Move through coin paths and hoops. Avoid the jellyfish!</p>
+          <p>Swim through coins and hoops. Dodge the jellyfish!</p>
           <button id="moveDown" type="button" aria-label="Swim down">▼</button>
         </div>
       </section>
@@ -98,13 +115,13 @@
         <div class="finish-dolphin" aria-hidden="true">🐬</div>
         <p class="eyebrow">AMAZING MATH!</p>
         <h1 id="finishTitle">You won the Dolphin Cup!</h1>
-        <p id="finishMessage">You raced 30 miles and made your dolphin super speedy.</p>
+        <p id="finishMessage">You explored every island!</p>
         <div class="finish-stats">
           <div><strong id="correctStat">0</strong><span>math wins</span></div>
           <div><strong id="coinStat">0</strong><span>coins</span></div>
-          <div><strong id="bestStat">—</strong><span>best streak</span></div>
+          <div><strong id="islandStat">8</strong><span>islands</span></div>
         </div>
-        <button id="playAgainButton" class="primary-button" type="button">Race again!</button>
+        <button id="playAgainButton" class="primary-button" type="button">Back to the map</button>
       </section>
     </main>
     <script src="game.js"></script>
