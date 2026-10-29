@@ -29,8 +29,8 @@ Vercel uses `vercel.json` to publish the generated `dist` directory.
 
 ## Controls
 
-- **Phone / iPad (touch):** math questions show four big answer buttons; swim by swiping on the water or using the ▲ ▼ buttons.
-- **Computer (mouse + keyboard):** she types the answer (auto-checked as soon as the digits are in, or press Enter) and swims with the ↑ ↓ arrow keys (W/S also work).
+- **Phone / iPad (touch):** math questions show four big answer buttons. Held upright, the race is vertical (the dolphin swims up the screen): tap the left or right half of the screen, swipe sideways, or use the ◀ ▶ buttons. Held sideways, touch the water where she should swim, or use the ▲ ▼ buttons.
+- **Computer (mouse + keyboard):** she types the answer (auto-checked as soon as the digits are in, or press Enter) and swims with the arrow keys (↑ ↓, or ← →; WASD also work).
 - Add `?input=keys` or `?input=choices` to the URL to force one mode.
 
 Math progress is stored in the browser so the difficulty can adapt over time.
