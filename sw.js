@@ -1,6 +1,6 @@
 // Keeps the game playable offline once it has been opened (e.g. from the home screen).
 // Network first so updates show up right away; the cache is only the fallback.
-const CACHE = "dolphin-dash-v1";
+const CACHE = "dolphin-dash-v2";
 const CORE = [
   "./",
   "index.html",
