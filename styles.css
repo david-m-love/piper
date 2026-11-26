@@ -277,3 +277,22 @@ canvas#mascot { background: transparent; aspect-ratio: auto; width: 150px; heigh
 .icon-button { position: relative; }
 .icon-button.off { opacity: .55; }
 .icon-button.off::after { content: ""; position: absolute; left: 20%; right: 20%; top: 50%; border-top: 3px solid #ff8aa6; border-radius: 2px; transform: rotate(-40deg); }
+
+/* ===== Shared style (Phase 0): sizes and helpers that every new screen should reuse ===== */
+:root { --tap-min: 64px; --tap-primary: 88px; }
+
+/* Big friendly buttons (DD.ui.bigButton in game.js): 64 px tall at least, 88 px for the main action. */
+.big-button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-width: var(--tap-min); min-height: var(--tap-min); padding: 12px 26px; border: 0; border-radius: 20px; color: var(--navy); background: white; box-shadow: 0 6px 0 rgba(0,70,110,.2); font-size: 22px; font-weight: 1000; cursor: pointer; transition: transform .1s, box-shadow .1s; }
+.big-button.primary { min-height: var(--tap-primary); color: white; background: linear-gradient(135deg, #ff648e, #f13777); box-shadow: 0 6px 0 #b91f57; font-size: 26px; }
+.big-button:active { transform: translateY(4px); box-shadow: 0 2px 0 rgba(0,70,110,.2); }
+.big-button.primary:active { box-shadow: 0 2px 0 #b91f57; }
+.big-button-icon { font-size: 1.3em; }
+
+/* Small controls keep their look but get a 64 px touch area. */
+.icon-button, .map-button, .link-button { position: relative; }
+.icon-button::before, .map-button::before, .link-button::before { content: ""; position: absolute; left: 50%; top: 50%; width: max(100%, var(--tap-min)); height: max(100%, var(--tap-min)); transform: translate(-50%, -50%); }
+.top-actions { gap: 22px; }
+.primary-button { min-height: var(--tap-min); }
+.race-controls { grid-template-columns: 70px 1fr 70px; }
+.race-controls button { height: var(--tap-min); }
+@media (max-width: 760px) { .race-controls { grid-template-columns: 64px 1fr 64px; } .race-controls button { height: var(--tap-min); } }

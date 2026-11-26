@@ -7,7 +7,7 @@ A kindergarten addition game. Piper explores an island map; each of the 8 island
 - After each round of 6 questions there is a 25-second free swim. The scenery gets richer on every island (more fish, treasure, kelp, a rainbow, glowing lights, a palace).
 - Sound is all generated in code (no audio files): a calm ocean background with bubbles, bubble pops on taps, splashes when she changes lane, coin and hoop pings, a springy jellyfish boing, a layered dolphin whistle, and a fanfare for mastering an island. 🎵 turns just the music off; 🔊 mutes everything.
 - Her dolphin coaches on the math screen: it chirps, cheers, counts with her and reads each question aloud (turn the speaker off in the top bar). Tap the dolphin to hear the question again.
-- Progress, coins, name and dolphin color are saved in the browser (`localStorage`), so she picks up where she left off. "Start over" on the map resets it.
+- Progress, coins, name and dolphin color are saved in the browser (`localStorage`), so she picks up where she left off. "Start over" on the map resets the math progress only; coins, hats and treasures are always kept.
 
 Open `index.html` directly, or use the included preview server. No packages need to be installed.
 
@@ -38,3 +38,9 @@ Math progress is stored in the browser so the difficulty can adapt over time.
 ## Home-screen app
 
 The game is an installable web app (`manifest.webmanifest`, `sw.js`, icons in `assets/`). On iPhone/iPad: open the site in Safari, tap Share, then **Add to Home Screen**. After the first visit it also works offline.
+
+## Planning docs and save data
+
+The plan for the next rounds of work is in `docs/` (start with `docs/00-start-here.md`).
+
+Saved in `localStorage`: `piperDolphinMath2` (the profile, version 3; progress is keyed by area id), `piperDolphinMath2_backup_v2` (a copy of the old v2 save, written once before it was migrated) and `piperDolphinLog` (an attempt log, one entry per answer). From a browser console, `DD.log.download("csv")` or `DD.log.download("json")` saves the log.

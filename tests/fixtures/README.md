@@ -1,0 +1,1 @@
+`v2-save.json` is a SYNTHETIC save in the old v2 shape (4 islands mastered, 137 coins, plus an unknown field that must survive migration). It is not Piper's real save. If a real one is ever exported, replace this file.

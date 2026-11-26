@@ -10,37 +10,75 @@
     { name: "Yellow", value: "#ffd447", filter: "hue-rotate(190deg) saturate(1.6)" }
   ];
 
-  // Eight islands, each a small family of facts (nothing adds up to more than 10).
-  // A fact counts as "learned" after GOAL right answers in a row on the first try; learn them all to unlock the next island.
+  // A fact counts as "learned" after GOAL right answers in a row on the first try; learn them all to unlock the next area.
   const GOAL = 2;
   const ROUND_LENGTH = 6;
   const RACE_SECONDS = 25;
-  const ISLANDS = [
-    { name: "Bubble Bay", sub: "Adding up to 4", emoji: "🏝️", facts: [[1, 1], [1, 2], [2, 1], [1, 3], [3, 1], [2, 2]] },
-    { name: "Coral Cove", sub: "Adding up to 5", emoji: "🐠", facts: [[1, 4], [4, 1], [2, 3], [3, 2]] },
-    { name: "Shell Shore", sub: "Plus 1", emoji: "🐚", facts: [[5, 1], [6, 1], [7, 1], [8, 1], [9, 1]] },
-    { name: "Kelp Forest", sub: "Plus 2", emoji: "🌿", facts: [[2, 4], [2, 5], [2, 6], [2, 7], [2, 8]] },
-    { name: "Pirate Wreck", sub: "Doubles", emoji: "🚢", facts: [[3, 3], [4, 4], [5, 5]] },
-    { name: "Rainbow Reef", sub: "Adding up to 7", emoji: "🌈", facts: [[3, 4], [4, 3], [2, 5], [5, 2], [1, 6]] },
-    { name: "Glow Grotto", sub: "Adding up to 9", emoji: "🦑", facts: [[4, 5], [5, 4], [3, 6], [6, 3], [7, 2], [1, 8]] },
-    { name: "Dolphin Palace", sub: "Make 10!", emoji: "🏰", facts: [[1, 9], [9, 1], [2, 8], [8, 2], [3, 7], [7, 3], [4, 6], [6, 4], [5, 5]] }
+
+  /* ---------- content shape: themes, fact sets, areas, worlds ----------
+     Piper's worlds (look, scenery) and David's math (fact sets) are separate on purpose:
+       THEMES     what a place looks like in the race (water, reef, scenery layers, obstacle)
+       FACT_SETS  which facts are practiced
+       AREAS      one stop on the map: a theme + a fact set. Progress is saved by the area's id, never by its position
+       WORLDS     a group of areas (only Sunny Sea exists so far)
+     Never reuse or rename an id: saves point at them. */
+
+  // Today's eight islands look exactly as before: each keeps all the scenery the earlier ones had. Layer names are explained at SCENERY.
+  const THEMES = [
+    { id: "sunny-sea", name: "Sunny Sea", emoji: "🌊", water: ["#b8fcff", "#20d4eb", "#0797ce", "#034f98"], reef: ["#ff668a", "#734fd1", "#17bb92"], scenery: ["fish"], obstacle: "jelly", fish: { count: 13, colored: false }, rays: { count: 8, spacing: 155, alpha: .13 }, hoop: { color: "#ffdb39", glow: 14 } },
+    { id: "bubble-bay", name: "Bubble Bay", emoji: "🏝️", water: ["#b8fcff", "#20d4eb", "#0797ce", "#034f98"], reef: ["#ff668a", "#734fd1", "#17bb92"], scenery: ["fish"], obstacle: "jelly", fish: { count: 13, colored: false }, rays: { count: 8, spacing: 155, alpha: .13 }, hoop: { color: "#ffdb39", glow: 14 } },
+    { id: "coral-cove", name: "Coral Cove", emoji: "🐠", water: ["#c9fff2", "#2fe0c8", "#07a9b8", "#046f8f"], reef: ["#ff7a59", "#ff4f9a", "#17bb92"], scenery: ["fish"], obstacle: "jelly", fish: { count: 16, colored: true }, rays: { count: 8, spacing: 155, alpha: .13 }, hoop: { color: "#ffdb39", glow: 14 } },
+    { id: "shell-shore", name: "Shell Shore", emoji: "🐚", water: ["#ffe9c9", "#4fd9e6", "#0c9ad0", "#05549a"], reef: ["#ffb347", "#ff668a", "#e6c27a"], scenery: ["fish", "chests"], obstacle: "jelly", fish: { count: 19, colored: true }, rays: { count: 8, spacing: 155, alpha: .13 }, hoop: { color: "#ffdb39", glow: 14 } },
+    { id: "kelp-forest", name: "Kelp Forest", emoji: "🌿", water: ["#d3ffc9", "#3fd6b0", "#0a9a9f", "#065a78"], reef: ["#2fbf71", "#7ed957", "#1b8f5a"], scenery: ["fish", "kelp", "chests"], obstacle: "jelly", fish: { count: 22, colored: true }, rays: { count: 8, spacing: 155, alpha: .13 }, hoop: { color: "#ffdb39", glow: 14 } },
+    { id: "pirate-wreck", name: "Pirate Wreck", emoji: "🚢", water: ["#b8e8ff", "#2aa9e8", "#0b6fb8", "#06336f"], reef: ["#c9a46b", "#e8c98c", "#4f6a73"], scenery: ["ship", "fish", "kelp", "chests"], obstacle: "jelly", fish: { count: 25, colored: true }, rays: { count: 8, spacing: 155, alpha: .13 }, hoop: { color: "#ffdb39", glow: 14 } },
+    { id: "rainbow-reef", name: "Rainbow Reef", emoji: "🌈", water: ["#ffd9f0", "#7fd2ff", "#27a0e6", "#0a56b8"], reef: ["#ff6bd6", "#7a6cff", "#35dfa0"], scenery: ["rainbow", "ship", "fish", "kelp", "chests"], obstacle: "jelly", fish: { count: 28, colored: true }, rays: { count: 11, spacing: 112, alpha: .2 }, hoop: { color: "#ffdb39", glow: 14 } },
+    { id: "glow-grotto", name: "Glow Grotto", emoji: "🦑", water: ["#6fb8ff", "#2a6fe0", "#1a2f9a", "#0c1459"], reef: ["#7af0ff", "#b57aff", "#2d3ea8"], scenery: ["rainbow", "ship", "fish", "glow", "kelp", "chests"], obstacle: "jelly", fish: { count: 31, colored: true }, rays: { count: 11, spacing: 112, alpha: .2 }, hoop: { color: "#ffdb39", glow: 14 } },
+    { id: "dolphin-palace", name: "Dolphin Palace", emoji: "🏰", water: ["#fff2b8", "#52e0e8", "#1aa0dd", "#0a4fa0"], reef: ["#ffd447", "#ff8fd1", "#ffe28a"], scenery: ["rainbow", "palace", "ship", "fish", "glow", "kelp", "chests"], obstacle: "jelly", fish: { count: 34, colored: true }, rays: { count: 11, spacing: 112, alpha: .2 }, hoop: { color: "#ffc400", glow: 26 } }
   ];
 
-  // Race scenery gets richer with every island (each island keeps everything the earlier ones had).
-  const WATER = [
-    ["#b8fcff", "#20d4eb", "#0797ce", "#034f98"],
-    ["#c9fff2", "#2fe0c8", "#07a9b8", "#046f8f"],
-    ["#ffe9c9", "#4fd9e6", "#0c9ad0", "#05549a"],
-    ["#d3ffc9", "#3fd6b0", "#0a9a9f", "#065a78"],
-    ["#b8e8ff", "#2aa9e8", "#0b6fb8", "#06336f"],
-    ["#ffd9f0", "#7fd2ff", "#27a0e6", "#0a56b8"],
-    ["#6fb8ff", "#2a6fe0", "#1a2f9a", "#0c1459"],
-    ["#fff2b8", "#52e0e8", "#1aa0dd", "#0a4fa0"]
+  // Today's eight fact lists, unchanged. (David assigns new ones later; "placeholder" is a mixed review of every earlier area.)
+  const FACT_SETS = [
+    { id: "add-to-4", label: "Adding up to 4", facts: [[1, 1], [1, 2], [2, 1], [1, 3], [3, 1], [2, 2]] },
+    { id: "add-to-5", label: "Adding up to 5", facts: [[1, 4], [4, 1], [2, 3], [3, 2]] },
+    { id: "plus-1", label: "Plus 1", facts: [[5, 1], [6, 1], [7, 1], [8, 1], [9, 1]] },
+    { id: "plus-2", label: "Plus 2", facts: [[2, 4], [2, 5], [2, 6], [2, 7], [2, 8]] },
+    { id: "doubles", label: "Doubles", facts: [[3, 3], [4, 4], [5, 5]] },
+    { id: "add-to-7", label: "Adding up to 7", facts: [[3, 4], [4, 3], [2, 5], [5, 2], [1, 6]] },
+    { id: "add-to-9", label: "Adding up to 9", facts: [[4, 5], [5, 4], [3, 6], [6, 3], [7, 2], [1, 8]] },
+    { id: "make-10", label: "Make 10!", facts: [[1, 9], [9, 1], [2, 8], [8, 2], [3, 7], [7, 3], [4, 6], [6, 4], [5, 5]] },
+    { id: "placeholder", label: "Mixed review", facts: null }
   ];
-  const REEF = [
-    ["#ff668a", "#734fd1", "#17bb92"], ["#ff7a59", "#ff4f9a", "#17bb92"], ["#ffb347", "#ff668a", "#e6c27a"], ["#2fbf71", "#7ed957", "#1b8f5a"],
-    ["#c9a46b", "#e8c98c", "#4f6a73"], ["#ff6bd6", "#7a6cff", "#35dfa0"], ["#7af0ff", "#b57aff", "#2d3ea8"], ["#ffd447", "#ff8fd1", "#ffe28a"]
+
+  const AREAS = [
+    { id: "bubble-bay", worldId: "sunny-sea", name: "Bubble Bay", sub: "Adding up to 4", emoji: "🏝️", theme: "bubble-bay", factSet: "add-to-4" },
+    { id: "coral-cove", worldId: "sunny-sea", name: "Coral Cove", sub: "Adding up to 5", emoji: "🐠", theme: "coral-cove", factSet: "add-to-5" },
+    { id: "shell-shore", worldId: "sunny-sea", name: "Shell Shore", sub: "Plus 1", emoji: "🐚", theme: "shell-shore", factSet: "plus-1" },
+    { id: "kelp-forest", worldId: "sunny-sea", name: "Kelp Forest", sub: "Plus 2", emoji: "🌿", theme: "kelp-forest", factSet: "plus-2" },
+    { id: "pirate-wreck", worldId: "sunny-sea", name: "Pirate Wreck", sub: "Doubles", emoji: "🚢", theme: "pirate-wreck", factSet: "doubles" },
+    { id: "rainbow-reef", worldId: "sunny-sea", name: "Rainbow Reef", sub: "Adding up to 7", emoji: "🌈", theme: "rainbow-reef", factSet: "add-to-7" },
+    { id: "glow-grotto", worldId: "sunny-sea", name: "Glow Grotto", sub: "Adding up to 9", emoji: "🦑", theme: "glow-grotto", factSet: "add-to-9" },
+    { id: "dolphin-palace", worldId: "sunny-sea", name: "Dolphin Palace", sub: "Make 10!", emoji: "🏰", theme: "dolphin-palace", factSet: "make-10" }
   ];
+
+  const WORLDS = [
+    { id: "sunny-sea", name: "Sunny Sea", theme: "sunny-sea", areas: AREAS.map((area) => area.id) }
+  ];
+
+  // The v2 save kept progress by position in the old island list. This frozen order is used only to migrate those saves.
+  const V2_ISLAND_ORDER = ["bubble-bay", "coral-cove", "shell-shore", "kelp-forest", "pirate-wreck", "rainbow-reef", "glow-grotto", "dolphin-palace"];
+
+  const byId = (list) => Object.fromEntries(list.map((item) => [item.id, item]));
+  const THEME_BY_ID = byId(THEMES);
+  const FACT_SET_BY_ID = byId(FACT_SETS);
+
+  const themeOf = (area) => THEME_BY_ID[area.theme] || THEME_BY_ID["sunny-sea"];
+  // The facts practiced in an area. A "placeholder" set reviews everything from the areas before it.
+  function factsOf(area) {
+    const set = FACT_SET_BY_ID[area.factSet];
+    if (set && set.facts) return set.facts;
+    return AREAS.slice(0, AREAS.indexOf(area)).flatMap(factsOf);
+  }
+
   const FISH_COLORS = ["#ffd447", "#ff8a5c", "#ff62a3", "#9ef0ff", "#b9ff8a"];
 
   const PRAISE = ["Great job!", "You got it!", "Awesome!", "Super swimmer!", "Splashtastic!", "Amazing!", "Yes! That's right!", "Wow, so smart!"];
@@ -49,7 +87,7 @@
 
   const $ = (id) => document.getElementById(id);
   const pick = (items) => items[Math.floor(Math.random() * items.length)];
-  const screens = ["startScreen", "mapScreen", "mathScreen", "raceScreen", "finishScreen"];
+  const screens = ["startScreen", "mapScreen", "mathScreen", "raceScreen", "finishScreen", "shopScreen", "theaterScreen"]; // the last two arrive in later phases
   const canvas = $("raceCanvas");
   const ctx = canvas.getContext("2d");
   const mascotCanvas = $("mascot");
@@ -91,21 +129,206 @@
     if (portrait) { ctx.translate(0, VIEW_W); ctx.rotate(-Math.PI / 2); }
   }
 
+  /* ---------- saving (profile v3) ----------
+     piperDolphinMath2            the profile (same key as always)
+     piperDolphinMath2_backup_v2  raw copy of the old v2 save, written once before it is migrated
+     piperDolphinLog              the attempt log (see below), kept apart so the profile stays small */
+
+  const SAVE_KEY = "piperDolphinMath2";
+  const SAVE_VERSION = 3;
+  const BACKUP_V2_KEY = "piperDolphinMath2_backup_v2";
+  const BACKUP_UNREADABLE_KEY = "piperDolphinMath2_backup_unreadable";
+  const BACKUP_BEFORE_RESET_KEY = "piperDolphinMath2_backup_before_reset";
+  const LOG_KEY = "piperDolphinLog";
+
   function defaultProfile() {
-    return { v: 2, name: "Bubbles", color: 0, coins: 0, correct: 0, sound: true, music: true, done: {}, facts: {} };
+    return {
+      v: SAVE_VERSION,
+      name: "Bubbles", color: 0, coins: 0, correct: 0, sound: true, music: true,
+      facts: {}, // "3+4": { streak, right, wrong }
+      done: {}, // by area id: { "bubble-bay": true }
+      worldsUnlocked: ["sunny-sea"],
+      hats: { owned: [], wearing: { me: null, violet: null } },
+      friend: { met: false, name: "Violet", color: "#ff8fc8" },
+      theater: { unlocked: false, visits: 0, moviesSeen: [] },
+      stats: { swims: 0, rings: 0, flips: 0, rainbowBubbles: 0 },
+      collection: { owned: [], seenNew: [], custom: [] },
+      shop: { lastRefresh: null, featured: [] },
+      stars: 0,
+      starLog: [],
+      playToday: { date: null, minutes: 0 }
+    };
   }
 
-  function loadProfile() {
+  const isPlainObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+
+  // Fill in anything missing (including inside nested objects). Stored values always win and unknown fields are kept.
+  function withDefaults(defaults, stored) {
+    const out = { ...stored };
+    Object.keys(defaults).forEach((key) => {
+      const fallback = defaults[key];
+      if (out[key] === undefined || out[key] === null) out[key] = JSON.parse(JSON.stringify(fallback));
+      else if (isPlainObject(fallback) && isPlainObject(out[key])) out[key] = withDefaults(fallback, out[key]);
+    });
+    return out;
+  }
+
+  // Best-effort copy of a raw save under another key. With onlyIfMissing it never overwrites an earlier copy.
+  function backUp(key, raw, onlyIfMissing = false) {
     try {
-      return { ...defaultProfile(), ...(JSON.parse(localStorage.getItem("piperDolphinMath2")) || {}) };
+      if (onlyIfMissing && localStorage.getItem(key) !== null) return true;
+      localStorage.setItem(key, raw);
+      return true;
     } catch (_) {
-      return defaultProfile();
+      return false;
     }
   }
 
-  function saveProfile() {
-    try { localStorage.setItem("piperDolphinMath2", JSON.stringify(game.profile)); } catch (_) { /* Saving is best effort. */ }
+  // v2 -> v3: done flags move from position (0, 1, 2...) to area id. Nothing is removed; new fields get defaults.
+  function migrateToV3(stored, raw) {
+    if (!backUp(BACKUP_V2_KEY, raw, true)) console.warn("Dolphin Dash: could not back up the old save before migrating it.");
+    const done = {};
+    Object.entries(isPlainObject(stored.done) ? stored.done : {}).forEach(([key, value]) => {
+      const id = /^\d+$/.test(key) ? (V2_ISLAND_ORDER[Number(key)] || key) : key;
+      done[id] = done[id] || value;
+    });
+    const migrated = withDefaults(defaultProfile(), { ...stored, done, v: SAVE_VERSION });
+    // Any hats already owned join the collection (addendum 1, section 4).
+    if (Array.isArray(stored.hats?.owned)) {
+      migrated.collection.owned = [...new Set([...migrated.collection.owned, ...stored.hats.owned])];
+    }
+    return migrated;
   }
+
+  function loadProfile() {
+    let raw = null;
+    try { raw = localStorage.getItem(SAVE_KEY); } catch (_) { return defaultProfile(); }
+    if (raw === null) return defaultProfile();
+    let stored = null;
+    try { stored = JSON.parse(raw); } catch (_) { /* handled below */ }
+    if (!isPlainObject(stored)) {
+      backUp(BACKUP_UNREADABLE_KEY, raw); // keep what we could not read, since the next save would overwrite it
+      return defaultProfile();
+    }
+    if (!(stored.v >= SAVE_VERSION)) {
+      const migrated = migrateToV3(stored, raw);
+      try { localStorage.setItem(SAVE_KEY, JSON.stringify(migrated)); } catch (_) { /* saved again on the next change */ }
+      return migrated;
+    }
+    return withDefaults(defaultProfile(), stored);
+  }
+
+  function saveProfile() {
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(game.profile)); } catch (_) { /* Saving is best effort. */ }
+  }
+
+  /* ---------- attempt log (math track, step M0) ----------
+     One entry for every answer she gives (right or wrong), kept for the parent report and for tuning.
+     { t, session, factId, family, op, mode, rtRaw, rtAdj, correct, firstTry, hint, context, timing }
+       t        when (ms since 1970)           session  a play period; a new one starts after 15 idle minutes
+       factId   "3+4"                          family   the same for 3+4 and 4+3 ("3+4")
+       op       "add"                          mode     "choice" | "pad" | "typed"
+       rtRaw    ms from the question appearing to her answer (it still includes the dolphin reading the question aloud)
+       rtAdj    ms after taking away her tap speed: null until the calibration step (M1) exists
+       correct  this answer was right          firstTry this was her first answer to this question
+       hint     the counting hint was already showing
+       context  "practice" | "warmup" | "reef" | "placement" | "check" | "money"
+       timing   how rtRaw was started: "shown" now; M1 switches it to "narrated" (after the narration ends)
+     The newest 20,000 are kept. */
+
+  const LOG_MAX = 20000;
+  const LOG_IDLE_MS = 15 * 60 * 1000;
+  const LOG_COLUMNS = ["t", "session", "factId", "family", "op", "mode", "rtRaw", "rtAdj", "correct", "firstTry", "hint", "context", "timing"];
+  const attemptLog = { entries: null, session: null, lastT: 0, timer: 0 };
+
+  function logEntries() {
+    if (attemptLog.entries) return attemptLog.entries;
+    let entries = [];
+    try {
+      const raw = localStorage.getItem(LOG_KEY);
+      if (raw !== null) {
+        let parsed = null;
+        try { parsed = JSON.parse(raw); } catch (_) { /* handled below */ }
+        if (Array.isArray(parsed)) entries = parsed;
+        else backUp(`${LOG_KEY}_backup_unreadable`, raw);
+      }
+    } catch (_) { /* no storage: the log lives in memory only */ }
+    attemptLog.entries = entries;
+    const last = entries[entries.length - 1];
+    if (last) { attemptLog.session = last.session; attemptLog.lastT = last.t; }
+    return entries;
+  }
+
+  function logAttempt(fields) {
+    const entries = logEntries();
+    const t = Date.now();
+    if (!attemptLog.session || t - attemptLog.lastT > LOG_IDLE_MS) attemptLog.session = `s${t.toString(36)}`;
+    attemptLog.lastT = t;
+    entries.push({
+      t, session: attemptLog.session,
+      factId: fields.factId, family: fields.family, op: fields.op, mode: fields.mode,
+      rtRaw: fields.rtRaw, rtAdj: null,
+      correct: fields.correct, firstTry: fields.firstTry, hint: fields.hint,
+      context: fields.context || "practice", timing: "shown"
+    });
+    if (entries.length > LOG_MAX) entries.splice(0, entries.length - LOG_MAX);
+    // The log can be a few MB, so it is written a moment after the last answer (and when the page is hidden), not on every tap.
+    clearTimeout(attemptLog.timer);
+    attemptLog.timer = setTimeout(flushLog, 800);
+  }
+
+  function flushLog() {
+    clearTimeout(attemptLog.timer);
+    if (!attemptLog.entries) return;
+    for (let tries = 0; tries < 2; tries++) {
+      try { localStorage.setItem(LOG_KEY, JSON.stringify(attemptLog.entries)); return; } catch (_) {
+        attemptLog.entries.splice(0, Math.ceil(attemptLog.entries.length / 4)); // storage full: drop the oldest quarter and try again
+      }
+    }
+  }
+
+  const csvCell = (value) => {
+    const text = value === null || value === undefined ? "" : String(value);
+    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+
+  // No button yet: the export screen lives behind the grown-up gate, which is built with the parent area. Until then
+  // these can be run from a browser console, e.g. DD.log.download("csv").
+  window.DD = window.DD || {};
+  DD.log = {
+    count: () => logEntries().length,
+    entries: () => logEntries().slice(),
+    toJSON: () => JSON.stringify(logEntries(), null, 1),
+    toCSV: () => [LOG_COLUMNS.join(","), ...logEntries().map((entry) => LOG_COLUMNS.map((column) => csvCell(entry[column])).join(","))].join("\n"),
+    download(format = "json") {
+      flushLog();
+      const csv = format === "csv";
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(new Blob([csv ? DD.log.toCSV() : DD.log.toJSON()], { type: csv ? "text/csv" : "application/json" }));
+      link.download = `dolphin-dash-log.${csv ? "csv" : "json"}`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(link.href), 4000);
+    }
+  };
+
+  // A big, friendly button for new screens (64 px tall at least, 88 px for the main action).
+  DD.ui = {
+    bigButton({ label, icon = "", primary = false, onClick }) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `big-button${primary ? " primary" : ""}`;
+      if (icon) {
+        const art = document.createElement("span");
+        art.className = "big-button-icon";
+        art.setAttribute("aria-hidden", "true");
+        art.textContent = icon;
+        button.appendChild(art);
+      }
+      button.append(label);
+      if (onClick) button.addEventListener("click", onClick);
+      return button;
+    }
+  };
 
   const game = {
     profile: loadProfile(),
@@ -113,11 +336,13 @@
     name: "Bubbles",
     sound: true,
     music: true,
-    island: 0,
+    areaIndex: 0,
     questionIndex: 0,
     question: null,
     questionStarted: 0,
     attempts: 0,
+    hintShown: false,
+    mode: "choice",
     hintId: 0,
     locked: false,
     recent: [],
@@ -137,7 +362,7 @@
   /* ---------- screens ---------- */
 
   function showScreen(id) {
-    screens.forEach((screen) => $(screen).classList.toggle("hidden", screen !== id));
+    screens.forEach((screen) => $(screen)?.classList.toggle("hidden", screen !== id));
     window.scrollTo(0, 0);
     setMusicLevel(id === "mathScreen" ? .45 : 1);
   }
@@ -180,11 +405,12 @@
 
   const factKey = (a, b) => `${a}+${b}`;
   const factRecord = (a, b) => game.profile.facts[factKey(a, b)] || { streak: 0, right: 0, wrong: 0 };
-  const isUnlocked = (i) => i === 0 || Boolean(game.profile.done[i - 1]);
-  const islandProgress = (i) => ISLANDS[i].facts.filter(([a, b]) => factRecord(a, b).streak >= GOAL).length;
-  const currentIsland = () => {
-    const open = ISLANDS.findIndex((_, i) => isUnlocked(i) && !game.profile.done[i]);
-    return open < 0 ? ISLANDS.length - 1 : open;
+  const isDone = (i) => Boolean(game.profile.done[AREAS[i].id]);
+  const isUnlocked = (i) => i === 0 || isDone(i - 1);
+  const areaProgress = (i) => factsOf(AREAS[i]).filter(([a, b]) => factRecord(a, b).streak >= GOAL).length;
+  const currentArea = () => {
+    const open = AREAS.findIndex((_, i) => isUnlocked(i) && !isDone(i));
+    return open < 0 ? AREAS.length - 1 : open;
   };
 
   function showMap(afterRace = false) {
@@ -192,10 +418,10 @@
     $("mapCoins").textContent = game.profile.coins;
     const banner = $("mapBanner");
     if (game.justMastered !== null) {
-      const next = ISLANDS[game.justMastered + 1];
+      const next = AREAS[game.justMastered + 1];
       banner.textContent = next
-        ? `🎉 You mastered ${ISLANDS[game.justMastered].name}! ${next.name} is open!`
-        : `🎉 You mastered ${ISLANDS[game.justMastered].name}!`;
+        ? `🎉 You mastered ${AREAS[game.justMastered].name}! ${next.name} is open!`
+        : `🎉 You mastered ${AREAS[game.justMastered].name}!`;
       banner.classList.remove("hidden");
     } else if (afterRace) {
       banner.textContent = `Great swimming! You found ${game.roundCoins} coins!`;
@@ -215,16 +441,17 @@
   function renderMap(fresh) {
     const list = $("islandList");
     list.replaceChildren();
-    const current = currentIsland();
-    ISLANDS.forEach((island, i) => {
+    const current = currentArea();
+    AREAS.forEach((island, i) => {
+      const facts = factsOf(island);
       const unlocked = isUnlocked(i);
-      const done = Boolean(game.profile.done[i]);
+      const done = isDone(i);
       const button = document.createElement("button");
       button.type = "button";
       button.disabled = !unlocked;
       button.className = `island${unlocked ? "" : " locked"}${done ? " done" : ""}${i === current ? " current" : ""}${i === fresh ? " fresh" : ""}`;
-      const dots = island.facts.map(([a, b]) => `<i class="${done || factRecord(a, b).streak >= GOAL ? "on" : ""}"></i>`).join("");
-      const status = !unlocked ? `Finish ${ISLANDS[i - 1].name} first` : done ? "⭐ Mastered!" : `${islandProgress(i)} of ${island.facts.length} facts learned`;
+      const dots = facts.map(([a, b]) => `<i class="${done || factRecord(a, b).streak >= GOAL ? "on" : ""}"></i>`).join("");
+      const status = !unlocked ? `Finish ${AREAS[i - 1].name} first` : done ? "⭐ Mastered!" : `${areaProgress(i)} of ${facts.length} facts learned`;
       button.innerHTML = `<span class="island-art">${unlocked ? island.emoji : "🔒"}${i === current ? `<span class="marker" style="filter:${COLORS[game.selectedColor].filter}">🐬</span>` : ""}</span>` +
         `<span class="island-info"><strong>${i + 1}. ${island.name}</strong><small>${island.sub}</small><span class="fact-dots">${dots}</span><em>${status}</em></span>`;
       button.addEventListener("click", () => startIsland(i));
@@ -233,9 +460,11 @@
   }
 
   function resetProgress() {
-    if (!window.confirm("Start over from the first island? This erases all saved progress.")) return;
-    const { name, color, sound } = game.profile;
-    game.profile = { ...defaultProfile(), name, color, sound };
+    if (!window.confirm("Start over from the first island? Your math progress goes back to the start. Your coins, hats, treasures and friends are always kept.")) return;
+    backUp(BACKUP_BEFORE_RESET_KEY, JSON.stringify(game.profile));
+    // Only the math goes back to the start. Coins, hats, collection, Violet, stars and the theater are never touched.
+    const fresh = defaultProfile();
+    game.profile = { ...game.profile, facts: fresh.facts, done: fresh.done, correct: 0, worldsUnlocked: fresh.worldsUnlocked };
     saveProfile();
     game.justMastered = null;
     showMap();
@@ -244,7 +473,7 @@
   /* ---------- math ---------- */
 
   function startIsland(i) {
-    game.island = i;
+    game.areaIndex = i;
     game.questionIndex = 0;
     game.streak = 0;
     game.recent = [];
@@ -252,7 +481,7 @@
     game.roundCoins = 0;
     $("mathDolphinName").textContent = game.name;
     $("mathCoins").textContent = game.profile.coins;
-    $("islandLabel").textContent = ISLANDS[i].name.toUpperCase();
+    $("islandLabel").textContent = AREAS[i].name.toUpperCase();
     showScreen("mathScreen");
     renderQuestion();
   }
@@ -260,9 +489,9 @@
   const weightOf = (record) => (record.streak >= GOAL ? 1 : 4 - record.streak + (record.wrong > record.right ? 2 : 0));
 
   function chooseQuestion() {
-    let facts = ISLANDS[game.island].facts;
+    let facts = factsOf(AREAS[game.areaIndex]);
     // Now and then, revisit facts from earlier islands so nothing gets forgotten.
-    if (game.island > 0 && Math.random() < .2) facts = ISLANDS.slice(0, game.island).flatMap((island) => island.facts);
+    if (game.areaIndex > 0 && Math.random() < .2) facts = AREAS.slice(0, game.areaIndex).flatMap(factsOf);
     let options = facts.filter(([a, b]) => !game.recent.includes(factKey(a, b)));
     if (!options.length) options = facts;
     const weighted = options.flatMap(([a, b]) => Array(weightOf(factRecord(a, b))).fill([a, b]));
@@ -293,6 +522,7 @@
   function renderQuestion() {
     const q = game.question = chooseQuestion();
     game.attempts = 0;
+    game.hintShown = false;
     game.locked = false;
     game.hintId += 1;
     game.questionStarted = performance.now();
@@ -304,6 +534,7 @@
 
     $("answers").replaceChildren();
     const typing = useKeyboard();
+    game.mode = typing ? "typed" : "choice";
     $("answers").classList.toggle("hidden", typing);
     $("typeAnswer").classList.toggle("hidden", !typing);
     if (typing) {
@@ -377,6 +608,12 @@
     const record = game.profile.facts[key] || (game.profile.facts[key] = { streak: 0, right: 0, wrong: 0 });
     const typed = el === $("answerInput");
 
+    logAttempt({
+      factId: key, family: `${Math.min(q.a, q.b)}+${Math.max(q.a, q.b)}`, op: "add", mode: game.mode,
+      rtRaw: Math.round(performance.now() - game.questionStarted),
+      correct: value === q.answer, firstTry: game.attempts === 0, hint: game.hintShown
+    });
+
     if (value !== q.answer) {
       game.attempts += 1;
       if (game.attempts === 1) { record.wrong += 1; record.streak = 0; game.streak = 0; }
@@ -390,8 +627,7 @@
       oops();
       setMascot("oops");
       if (game.attempts === 1) {
-        say(pick(OOPS));
-        startCount();
+        startCount(say(pick(OOPS)));
       } else {
         say(pick(KEEP));
         glowAnswer();
@@ -424,41 +660,50 @@
     else if (game.streak === 3 || game.streak === 5 || game.streak === 8) praise = `${game.streak} in a row! You're on fire!`;
     else if (Math.random() < .3) praise = `${praise.replace(/[!.]$/, "")}, ${game.name}!`;
 
-    const island = ISLANDS[game.island];
-    if (!game.profile.done[game.island] && islandProgress(game.island) === island.facts.length) {
-      game.profile.done[game.island] = true;
-      game.justMastered = game.island;
+    const island = AREAS[game.areaIndex];
+    if (!isDone(game.areaIndex) && areaProgress(game.areaIndex) === factsOf(island).length) {
+      game.profile.done[island.id] = true;
+      game.justMastered = game.areaIndex;
       praise = `You mastered ${island.name}! Hooray!`;
     }
     saveProfile();
     say(praise);
     setMascot("cheer");
     burstStars();
-    if (game.justMastered === game.island) fanfare(); else { chirp(); sparkle(4); }
+    if (game.justMastered === game.areaIndex) fanfare(); else { chirp(); sparkle(4); }
     game.nextTimer = setTimeout(() => {
       game.questionIndex += 1;
       if (game.justMastered !== null || game.questionIndex >= ROUND_LENGTH) startRaceRound(); else renderQuestion();
     }, game.justMastered !== null ? 2300 : 1700);
   }
 
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
   // Count the pieces one at a time with her dolphin, then point at the right answer.
-  function startCount() {
+  // Each piece lights up, plays its note, and the NEXT one waits until her dolphin has finished saying the number, so the
+  // voice and the glowing pieces stay together however slowly the device speaks. With sound off it uses fixed timing.
+  async function startCount(narration = Promise.resolve()) {
     const id = ++game.hintId;
+    game.hintShown = true;
     const q = game.question;
     const tokens = [...document.querySelectorAll("#tokens .token")];
     tokens.forEach((token) => { token.classList.remove("counted"); delete token.dataset.n; });
-    tokens.forEach((token, i) => setTimeout(() => {
-      if (game.hintId !== id) return;
-      token.classList.add("counted");
-      token.dataset.n = i + 1;
+    const alive = () => game.hintId === id;
+    const voiced = () => game.sound && "speechSynthesis" in window;
+    await narration; // "Almost! Let's count together." finishes first
+    await sleep(voiced() ? 350 : 1100);
+    for (let i = 0; i < tokens.length; i++) {
+      if (!alive()) return;
+      tokens[i].classList.add("counted");
+      tokens[i].dataset.n = i + 1;
       note(SCALE[Math.min(i, SCALE.length - 1)], 0, .3, "triangle", .07);
-      speak(String(i + 1), true);
-    }, 1100 + i * 700));
-    setTimeout(() => {
-      if (game.hintId !== id) return;
-      say(`${q.a} plus ${q.b} makes ${q.answer}!`, undefined, true);
-      glowAnswer();
-    }, 1100 + tokens.length * 700 + 150);
+      if (voiced()) await speak(String(i + 1), true);
+      await sleep(voiced() ? 250 : 700);
+    }
+    if (!voiced()) await sleep(150);
+    if (!alive()) return;
+    say(`${q.a} plus ${q.b} makes ${q.answer}!`, undefined, true);
+    glowAnswer();
   }
 
   function glowAnswer() {
@@ -543,20 +788,39 @@
     }
   }
 
+  // Says the text and returns a Promise that resolves when the voice has finished (or when sound is off).
   function say(text, spoken, queue = false) {
     $("mascotSay").textContent = text;
-    speak(spoken || text, queue);
+    return speak(spoken || text, queue);
   }
 
+  // Utterances stay referenced until they end: iOS Safari can drop the "end" event of one that was garbage collected.
+  const speaking = new Set();
+
+  // Resolves when the utterance ends or fails. iOS Safari sometimes never reports the end, so a timeout (about 1.5 s plus
+  // a little per letter) resolves it anyway. Never rejects. Resolves at once if sound is off or speech is missing.
   function speak(text, queue = false) {
-    if (!game.sound || !("speechSynthesis" in window)) return;
-    try {
-      if (!queue) speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = .88;
-      utterance.pitch = 1.3;
-      speechSynthesis.speak(utterance);
-    } catch (_) { /* Speech is optional. */ }
+    if (!game.sound || !("speechSynthesis" in window)) return Promise.resolve();
+    return new Promise((resolve) => {
+      let utterance = null;
+      let timer = 0;
+      const finish = () => {
+        clearTimeout(timer);
+        if (utterance) speaking.delete(utterance);
+        resolve();
+      };
+      try {
+        if (!queue) speechSynthesis.cancel();
+        utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = .88;
+        utterance.pitch = 1.3;
+        utterance.onend = finish;
+        utterance.onerror = finish;
+        speaking.add(utterance);
+        timer = setTimeout(finish, 1500 + text.length * 60);
+        speechSynthesis.speak(utterance);
+      } catch (_) { finish(); /* Speech is optional. */ }
+    });
   }
 
   /* ---------- the race ---------- */
@@ -564,7 +828,7 @@
   function startRaceRound() {
     showScreen("raceScreen");
     layoutRace();
-    const n = game.island + 1;
+    const theme = themeOf(AREAS[game.areaIndex]);
     const lanes = [155, 310, 465];
     game.roundCoins = 0;
     game.race = {
@@ -578,16 +842,16 @@
       objects: [],
       spawnClock: 0,
       bubbles: Array.from({ length: 42 }, () => ({ x: Math.random() * VIEW_W, y: Math.random() * VIEW_H, r: 2 + Math.random() * 8 })),
-      fish: Array.from({ length: 10 + n * 3 }, (_, i) => ({
+      fish: Array.from({ length: theme.fish.count }, (_, i) => ({
         x: Math.random() * VIEW_W, y: 110 + Math.random() * 400, size: 6 + Math.random() * 10, depth: .2 + (i % 4) * .1,
-        color: n >= 2 ? FISH_COLORS[i % FISH_COLORS.length] : null
+        color: theme.fish.colored ? FISH_COLORS[i % FISH_COLORS.length] : null
       })),
       glow: Array.from({ length: 34 }, () => ({ x: Math.random() * VIEW_W, y: 80 + Math.random() * 480, r: 3 + Math.random() * 5, phase: Math.random() * 6 })),
       wake: [],
       world: 0,
       flash: 0
     };
-    $("raceIsland").textContent = ISLANDS[game.island].name;
+    $("raceIsland").textContent = AREAS[game.areaIndex].name;
     $("raceCoins").textContent = "0";
     $("raceCallout").textContent = portrait ? "Tap left or right to swim!" : "Swipe or use ↑ ↓ to swim!";
     $("raceCallout").style.opacity = "1";
@@ -657,26 +921,26 @@
 
   function drawRace() {
     const race = game.race;
-    const n = game.island + 1;
+    const theme = themeOf(AREAS[game.areaIndex]);
     const now = performance.now() / 1000;
     applyView();
-    const stops = WATER[n - 1];
+    const stops = theme.water;
     const gradient = ctx.createLinearGradient(0, 0, 0, VIEW_H);
     gradient.addColorStop(0, stops[0]); gradient.addColorStop(.14, stops[1]); gradient.addColorStop(.5, stops[2]); gradient.addColorStop(1, stops[3]);
     ctx.fillStyle = gradient; ctx.fillRect(0, 0, VIEW_W, VIEW_H);
 
-    // Animated sunlight (more rays on later islands).
+    // Animated sunlight.
     ctx.save();
-    ctx.globalAlpha = n >= 6 ? .2 : .13;
-    for (let i = 0; i < (n >= 6 ? 11 : 8); i++) {
-      const topX = 70 + i * (n >= 6 ? 112 : 155) + Math.sin(now + i) * 22;
+    ctx.globalAlpha = theme.rays.alpha;
+    for (let i = 0; i < theme.rays.count; i++) {
+      const topX = 70 + i * theme.rays.spacing + Math.sin(now + i) * 22;
       const ray = ctx.createLinearGradient(topX, 0, topX + 140, 500);
       ray.addColorStop(0, "rgba(255,255,255,.9)"); ray.addColorStop(1, "rgba(255,255,255,0)");
       ctx.fillStyle = ray; ctx.beginPath(); ctx.moveTo(topX, 0); ctx.lineTo(topX + 65, 0); ctx.lineTo(topX + 260, 570); ctx.lineTo(topX + 100, 570); ctx.closePath(); ctx.fill();
     }
     ctx.restore();
 
-    if (n >= 6) drawRainbow();
+    drawScenery("sky", race, now, theme);
     ctx.strokeStyle = "rgba(255,255,255,.55)"; ctx.lineWidth = 5;
     ctx.beginPath();
     for (let x = 0; x <= VIEW_W; x += 18) {
@@ -685,8 +949,7 @@
     }
     ctx.stroke();
 
-    if (n >= 8) drawPalace(race.world);
-    if (n >= 5) drawShip(race.world);
+    drawScenery("far", race, now, theme);
 
     ctx.globalAlpha = .22; ctx.fillStyle = "white";
     race.bubbles.forEach((b, i) => {
@@ -696,27 +959,18 @@
     });
     ctx.globalAlpha = 1;
 
-    race.fish.forEach((fish, i) => {
-      const x = (fish.x - race.world * fish.depth + VIEW_W * 4) % (VIEW_W + 80) - 40;
-      const y = fish.y + Math.sin(now * 1.7 + i) * 8;
-      ctx.save(); ctx.translate(x, y);
-      ctx.globalAlpha = fish.color ? .5 + fish.depth * .3 : .16 + fish.depth * .22;
-      ctx.fillStyle = fish.color || (i % 2 ? "#003e73" : "#b9fcff");
-      ctx.beginPath(); ctx.ellipse(0, 0, fish.size * 1.55, fish.size, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.moveTo(fish.size, 0); ctx.lineTo(fish.size * 2.2, -fish.size); ctx.lineTo(fish.size * 2.2, fish.size); ctx.closePath(); ctx.fill(); ctx.restore();
-    });
+    drawScenery("fish", race, now, theme);
 
     ctx.fillStyle = "rgba(0,92,126,.25)";
     for (let x = -80 - (race.world * .18 % 140); x < VIEW_W + 100; x += 140) {
       ctx.beginPath(); ctx.moveTo(x, VIEW_H); ctx.quadraticCurveTo(x + 40 + Math.sin(now + x) * 8, 500, x + 75, VIEW_H); ctx.fill();
     }
 
-    if (n >= 7) drawGlow(race, now);
-    drawReef(race.world, now, REEF[n - 1]);
-    if (n >= 4) drawKelp(race.world, now);
-    if (n >= 3) drawChests(race.world, now);
+    drawScenery("mid", race, now, theme);
+    drawReef(race.world, now, theme.reef);
+    drawScenery("near", race, now, theme);
 
-    race.objects.forEach((obj) => drawObject(obj, n));
+    race.objects.forEach((obj) => drawObject(obj, theme));
     race.wake.forEach((p) => {
       ctx.globalAlpha = Math.max(0, p.life) * .55; ctx.strokeStyle = "white"; ctx.lineWidth = 2.5;
       ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.stroke();
@@ -729,6 +983,37 @@
       ctx.fillStyle = race.flash > 0 ? `rgba(255,239,91,${Math.abs(race.flash)})` : `rgba(255,80,120,${Math.abs(race.flash)})`;
       ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     }
+  }
+
+  function drawFish(race, now) {
+    race.fish.forEach((fish, i) => {
+      const x = (fish.x - race.world * fish.depth + VIEW_W * 4) % (VIEW_W + 80) - 40;
+      const y = fish.y + Math.sin(now * 1.7 + i) * 8;
+      ctx.save(); ctx.translate(x, y);
+      ctx.globalAlpha = fish.color ? .5 + fish.depth * .3 : .16 + fish.depth * .22;
+      ctx.fillStyle = fish.color || (i % 2 ? "#003e73" : "#b9fcff");
+      ctx.beginPath(); ctx.ellipse(0, 0, fish.size * 1.55, fish.size, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(fish.size, 0); ctx.lineTo(fish.size * 2.2, -fish.size); ctx.lineTo(fish.size * 2.2, fish.size); ctx.closePath(); ctx.fill(); ctx.restore();
+    });
+  }
+
+  // Named scenery layers. A theme lists the ones it wants (THEMES[].scenery). Each layer belongs to a stage, and the
+  // stages are drawn back to front: sky, far, (bubbles), fish, (sea bumps), mid, (reef), near.
+  // Layers within a stage are drawn in the order of this list, whatever order a theme names them in.
+  const SCENERY = {
+    rainbow: { stage: "sky", draw: () => drawRainbow() },
+    palace: { stage: "far", draw: (race) => drawPalace(race.world) },
+    ship: { stage: "far", draw: (race) => drawShip(race.world) },
+    fish: { stage: "fish", draw: drawFish },
+    glow: { stage: "mid", draw: (race, now) => drawGlow(race, now) },
+    kelp: { stage: "near", draw: (race, now) => drawKelp(race.world, now) },
+    chests: { stage: "near", draw: (race, now) => drawChests(race.world, now) }
+  };
+
+  function drawScenery(stage, race, now, theme) {
+    Object.entries(SCENERY).forEach(([name, layer]) => {
+      if (layer.stage === stage && theme.scenery.includes(name)) layer.draw(race, now);
+    });
   }
 
   function drawReef(world, now, colors) {
@@ -824,7 +1109,7 @@
     ctx.restore();
   }
 
-  function drawObject(obj, n) {
+  function drawObject(obj, theme) {
     const upright = () => { if (portrait) ctx.rotate(Math.PI / 2); };
     ctx.save(); ctx.translate(obj.x, obj.y);
     if (obj.type === "coin") {
@@ -833,7 +1118,7 @@
       ctx.beginPath(); ctx.ellipse(0, 0, width, 31, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
       ctx.fillStyle = "#e6a512"; ctx.font = "900 26px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; upright(); ctx.fillText("★", 0, 2);
     } else if (obj.type === "hoop") {
-      ctx.strokeStyle = n >= 8 ? "#ffc400" : "#ffdb39"; ctx.lineWidth = 15; ctx.shadowColor = "#fff59d"; ctx.shadowBlur = n >= 8 ? 26 : 14;
+      ctx.strokeStyle = theme.hoop.color; ctx.lineWidth = 15; ctx.shadowColor = "#fff59d"; ctx.shadowBlur = theme.hoop.glow;
       ctx.beginPath(); ctx.ellipse(0, 0, 35, 68, 0, 0, Math.PI * 2); ctx.stroke();
       ctx.shadowBlur = 0; ctx.fillStyle = "white"; ctx.font = "900 18px sans-serif"; ctx.textAlign = "center"; upright(); ctx.fillText("+2", 0, 6);
     } else {
@@ -883,7 +1168,7 @@
     game.race.active = false;
     game.profile.coins += game.roundCoins;
     saveProfile();
-    if (game.justMastered === ISLANDS.length - 1) { setTimeout(finishGame, 800); return; }
+    if (game.justMastered === AREAS.length - 1) { setTimeout(finishGame, 800); return; }
     $("raceCallout").textContent = `Great swimming! ${game.roundCoins} coins!`;
     $("raceCallout").style.opacity = "1";
     setTimeout(() => showMap(true), 1300);
@@ -893,10 +1178,10 @@
     game.justMastered = null;
     showScreen("finishScreen");
     $("finishTitle").textContent = `${game.name} won the Dolphin Cup!`;
-    $("finishMessage").textContent = `You explored all 8 islands and made ${game.name} super speedy.`;
+    $("finishMessage").textContent = `You explored all ${AREAS.length} islands and made ${game.name} super speedy.`;
     $("correctStat").textContent = game.profile.correct;
     $("coinStat").textContent = game.profile.coins;
-    $("islandStat").textContent = ISLANDS.length;
+    $("islandStat").textContent = AREAS.length;
     fanfare();
   }
 
@@ -1273,6 +1558,9 @@
     const button = event.target.closest?.("button");
     if (button && !["moveUp", "moveDown"].includes(button.id)) pop();
   }, { passive: true });
+  // The attempt log is written shortly after each answer; make sure the last ones are saved when she leaves.
+  document.addEventListener("visibilitychange", () => { if (document.hidden) flushLog(); });
+  window.addEventListener("pagehide", flushLog);
   document.addEventListener("visibilitychange", () => {
     if (!getAudio.audio) return;
     if (document.hidden) getAudio.audio.suspend(); else if (game.sound) getAudio.audio.resume();
