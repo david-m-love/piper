@@ -87,7 +87,7 @@
 
   const $ = (id) => document.getElementById(id);
   const pick = (items) => items[Math.floor(Math.random() * items.length)];
-  const screens = ["startScreen", "mapScreen", "mathScreen", "raceScreen", "finishScreen", "shopScreen", "theaterScreen"]; // the last two arrive in later phases
+  const screens = ["startScreen", "mapScreen", "mathScreen", "raceScreen", "finishScreen", "shopScreen", "treasuresScreen", "theaterScreen"]; // theaterScreen arrives in a later phase
   const canvas = $("raceCanvas");
   const ctx = canvas.getContext("2d");
   const mascotCanvas = $("mascot");
@@ -151,7 +151,7 @@
       hats: { owned: [], wearing: { me: null, violet: null } },
       friend: { met: false, name: "Violet", color: "#ff8fc8" },
       theater: { unlocked: false, visits: 0, moviesSeen: [] },
-      stats: { swims: 0, rings: 0, flips: 0, rainbowBubbles: 0 },
+      stats: { swims: 0, rings: 0, flips: 0, rainbowBubbles: 0, payments: 0 },
       collection: { owned: [], seenNew: [], custom: [] },
       shop: { lastRefresh: null, featured: [] },
       stars: 0,
@@ -234,11 +234,12 @@
        hint     the counting hint was already showing
        context  "practice" | "warmup" | "reef" | "placement" | "check" | "money"
        timing   how rtRaw was started: "shown" now; M1 switches it to "narrated" (after the narration ends)
+       price, dragged, prompts, trades   only on "money" entries: the price, coins she put on the tray, gentle prompts she needed, gold coins traded
      The newest 20,000 are kept. */
 
   const LOG_MAX = 20000;
   const LOG_IDLE_MS = 15 * 60 * 1000;
-  const LOG_COLUMNS = ["t", "session", "factId", "family", "op", "mode", "rtRaw", "rtAdj", "correct", "firstTry", "hint", "context", "timing"];
+  const LOG_COLUMNS = ["t", "session", "factId", "family", "op", "mode", "rtRaw", "rtAdj", "correct", "firstTry", "hint", "context", "timing", "price", "dragged", "prompts", "trades"];
   const attemptLog = { entries: null, session: null, lastT: 0, timer: 0 };
 
   function logEntries() {
@@ -269,7 +270,9 @@
       factId: fields.factId, family: fields.family, op: fields.op, mode: fields.mode,
       rtRaw: fields.rtRaw, rtAdj: null,
       correct: fields.correct, firstTry: fields.firstTry, hint: fields.hint,
-      context: fields.context || "practice", timing: "shown"
+      context: fields.context || "practice", timing: "shown",
+      // Paying in the shop is logged too (context "money"); it is kept out of fact-fluency scoring.
+      ...(fields.price === undefined ? {} : { price: fields.price, dragged: fields.dragged, prompts: fields.prompts, trades: fields.trades })
     });
     if (entries.length > LOG_MAX) entries.splice(0, entries.length - LOG_MAX);
     // The log can be a few MB, so it is written a moment after the last answer (and when the page is hidden), not on every tap.
@@ -432,6 +435,7 @@
     const unlockedNow = game.justMastered;
     game.justMastered = null;
     renderMap(unlockedNow === null ? -1 : unlockedNow + 1);
+    updateShopButton();
     showScreen("mapScreen");
     if (unlockedNow !== null) sparkle(8);
     const current = document.querySelector(".island.current");
@@ -452,9 +456,11 @@
       button.className = `island${unlocked ? "" : " locked"}${done ? " done" : ""}${i === current ? " current" : ""}${i === fresh ? " fresh" : ""}`;
       const dots = facts.map(([a, b]) => `<i class="${done || factRecord(a, b).streak >= GOAL ? "on" : ""}"></i>`).join("");
       const status = !unlocked ? `Finish ${AREAS[i - 1].name} first` : done ? "⭐ Mastered!" : `${areaProgress(i)} of ${facts.length} facts learned`;
-      button.innerHTML = `<span class="island-art">${unlocked ? island.emoji : "🔒"}${i === current ? `<span class="marker" style="filter:${COLORS[game.selectedColor].filter}">🐬</span>` : ""}</span>` +
+      button.innerHTML = `<span class="island-art">${unlocked ? island.emoji : "🔒"}${i === current ? `<canvas class="marker" width="112" height="88" aria-hidden="true"></canvas>` : ""}</span>` +
         `<span class="island-info"><strong>${i + 1}. ${island.name}</strong><small>${island.sub}</small><span class="fact-dots">${dots}</span><em>${status}</em></span>`;
       button.addEventListener("click", () => startIsland(i));
+      const marker = button.querySelector("canvas.marker");
+      if (marker) drawDolphin(marker.getContext("2d"), 66, 60, COLORS[game.selectedColor].value, .56, "happy", worn());
       list.appendChild(button);
     });
   }
@@ -721,6 +727,555 @@
     showMap();
   }
 
+  /* ---------- hats ----------
+     Every hat is drawn in code. Its art is drawn around (0, 0), the point on top of the head where it sits, about 60 wide,
+     with its bottom edge near y = 0. drawDolphin puts that point on the head and tilts it to follow the forehead. */
+
+  const ECONOMY = {
+    goldValue: 10, // one gold coin is worth ten regular coins (display only: the save stores a single number)
+    hatPrice: { common: 20, fancy: 45 },
+    hatShopOpensAfterAreas: 1, // areas mastered before the hat shop opens
+    priceTagPictureUntil: 3 // the price tag shows its coins as a picture until she has paid this many times
+  };
+
+  const HEAD = { x: 21, y: -30, tilt: .18 }; // where hats sit on the dolphin, in drawDolphin's own units
+
+  const HAT_ART = {
+    "flower-crown"(c) {
+      // A full ring of flowers around the head, seen from a little above: the far side peeks up behind, the near side dips over the forehead.
+      const petals = ["#ff8fc8", "#ffe14d", "#ffffff", "#c9a6ff", "#ff9a7a"];
+      const flower = (x, y, r, i) => {
+        c.fillStyle = petals[i % petals.length];
+        for (let k = 0; k < 5; k++) { const a = k * 1.2566; c.beginPath(); c.arc(x + Math.cos(a) * r * .72, y + Math.sin(a) * r * .72, r * .6, 0, 7); c.fill(); }
+        c.fillStyle = "#ffb300"; c.beginPath(); c.arc(x, y, r * .42, 0, 7); c.fill();
+      };
+      const cy = -5, rx = 31, ry = 11, count = 8;
+      c.lineCap = "round"; c.strokeStyle = "#1f9a5f"; c.lineWidth = 6;
+      c.beginPath(); c.ellipse(0, cy, rx, ry, 0, 0, Math.PI * 2); c.stroke();
+      [false, true].forEach((front) => {
+        for (let i = 0; i < count; i++) {
+          const a = (i + .5) / count * Math.PI * 2, y = cy + Math.sin(a) * ry;
+          if ((Math.sin(a) > 0) !== front) continue;
+          c.fillStyle = "#2fbf71"; c.beginPath(); c.ellipse(Math.cos(a + .4) * rx, cy + Math.sin(a + .4) * ry, 7, 3.2, a + .4, 0, 7); c.fill();
+          flower(Math.cos(a) * rx, y, front ? 8.5 : 6.5, i);
+        }
+      });
+    },
+    "violet-sparkle"(c, t) {
+      c.fillStyle = "#7a3fd1"; c.beginPath(); c.ellipse(0, -1, 36, 9, 0, 0, 7); c.fill();
+      c.fillStyle = "#9a5cf0"; c.beginPath(); c.moveTo(-22, -3); c.lineTo(-18, -46); c.quadraticCurveTo(0, -54, 18, -46); c.lineTo(22, -3); c.closePath(); c.fill();
+      c.fillStyle = "#ff8fd1"; c.fillRect(-21, -15, 42, 8);
+      [[-8, -30], [8, -37], [2, -22], [-14, -42], [14, -26]].forEach(([x, y], i) => {
+        c.save(); c.translate(x, y); c.rotate(i);
+        const glint = .35 + .65 * Math.max(0, Math.sin(t * 4 + i * 1.7)); // each sparkle twinkles on its own beat
+        c.globalAlpha = glint; c.fillStyle = "white"; c.scale(.6 + glint * .6, .6 + glint * .6);
+        c.fillRect(-1.5, -5, 3, 10); c.fillRect(-5, -1.5, 10, 3);
+        c.restore();
+      });
+    },
+    "party-hat"(c) {
+      c.fillStyle = "#ff5a8a"; c.beginPath(); c.moveTo(-20, 1); c.lineTo(0, -56); c.lineTo(20, 1); c.closePath(); c.fill();
+      c.fillStyle = "#ffd83d"; [[-8, -12], [6, -24], [-2, -38]].forEach(([x, y]) => { c.beginPath(); c.arc(x, y, 4, 0, 7); c.fill(); });
+      c.fillStyle = "#4db8ff"; c.beginPath(); c.arc(0, -58, 8, 0, 7); c.fill();
+    },
+    "crown"(c) {
+      c.fillStyle = "#ffcd2e"; c.strokeStyle = "#e6a512"; c.lineWidth = 3;
+      c.beginPath(); c.moveTo(-26, 3); c.lineTo(-30, -32); c.lineTo(-14, -16); c.lineTo(0, -38); c.lineTo(14, -16); c.lineTo(30, -32); c.lineTo(26, 3); c.closePath(); c.fill(); c.stroke();
+      [[-30, -32], [0, -38], [30, -32]].forEach(([x, y]) => { c.fillStyle = "#ff5a8a"; c.beginPath(); c.arc(x, y, 5, 0, 7); c.fill(); });
+    },
+    "pirate-hat"(c) {
+      c.fillStyle = "#2a2a3a"; c.beginPath(); c.moveTo(-38, 3); c.quadraticCurveTo(-30, -44, 0, -40); c.quadraticCurveTo(30, -44, 38, 3); c.quadraticCurveTo(0, -7, -38, 3); c.fill();
+      c.fillStyle = "white"; c.beginPath(); c.arc(0, -20, 6, 0, 7); c.fill(); c.fillRect(-9, -12, 18, 3);
+    },
+    "sun-hat"(c) {
+      c.fillStyle = "#f5d27a"; c.beginPath(); c.ellipse(0, -1, 44, 10, 0, 0, 7); c.fill();
+      c.beginPath(); c.moveTo(-20, -1); c.quadraticCurveTo(-20, -34, 0, -34); c.quadraticCurveTo(20, -34, 20, -1); c.fill();
+      c.fillStyle = "#ff5a8a"; c.fillRect(-20, -12, 40, 7);
+    },
+    "bow"(c) {
+      c.fillStyle = "#ff5a8a";
+      c.beginPath(); c.moveTo(0, -10); c.quadraticCurveTo(-34, -40, -34, -6); c.quadraticCurveTo(-30, 14, 0, -10);
+      c.moveTo(0, -10); c.quadraticCurveTo(34, -40, 34, -6); c.quadraticCurveTo(30, 14, 0, -10); c.fill();
+      c.fillStyle = "#d93a74"; c.beginPath(); c.arc(0, -10, 8, 0, 7); c.fill();
+    },
+    "chef-hat"(c) {
+      c.fillStyle = "white"; c.strokeStyle = "#cfe3ea"; c.lineWidth = 2;
+      [[-14, -34, 16], [0, -42, 18], [14, -34, 16]].forEach(([x, y, r]) => { c.beginPath(); c.arc(x, y, r, 0, 7); c.fill(); c.stroke(); });
+      c.fillRect(-22, -30, 44, 31); c.fillStyle = "#eaf6fa"; c.fillRect(-22, -5, 44, 8);
+    },
+    "snow-beanie"(c) {
+      c.fillStyle = "#7fd2ff"; c.beginPath(); c.moveTo(-24, 3); c.quadraticCurveTo(-26, -40, 0, -40); c.quadraticCurveTo(26, -40, 24, 3); c.closePath(); c.fill();
+      c.fillStyle = "white"; c.fillRect(-26, -7, 52, 10); c.beginPath(); c.arc(0, -42, 9, 0, 7); c.fill();
+    },
+    "bubble-halo"(c, t) {
+      c.strokeStyle = "rgba(255,255,255,.95)"; c.lineWidth = 3.5; c.fillStyle = "rgba(180,240,255,.35)";
+      for (let i = 0; i < 7; i++) {
+        const x = -30 + i * 10, y = -18 + Math.sin(i * 1.3) * 4 + Math.sin(t * 2 + i) * 1.5;
+        c.beginPath(); c.arc(x, y, 6.5 + i % 2 * 2, 0, 7); c.fill(); c.stroke();
+      }
+    },
+    "starfish-clip"(c) {
+      c.fillStyle = "#ff9a45"; c.beginPath();
+      for (let i = 0; i < 10; i++) { const r = i % 2 ? 7 : 18, a = i * Math.PI / 5 - Math.PI / 2; c.lineTo(Math.cos(a) * r, -14 + Math.sin(a) * r); }
+      c.closePath(); c.fill(); c.fillStyle = "#ffd9a8"; c.beginPath(); c.arc(0, -14, 4, 0, 7); c.fill();
+    },
+    "rainbow-hat"(c) {
+      ["#ff5a5a", "#ff9a45", "#ffe14d", "#5fdc7b", "#4db8ff", "#9a6cff"].forEach((color, i) => {
+        c.strokeStyle = color; c.lineWidth = 6; c.beginPath(); c.arc(0, 4, 34 - i * 5.4, Math.PI, 0); c.stroke();
+      });
+    }
+  };
+
+  // In the order the dressing room shows them. "found" hats cannot be bought.
+  const HATS = [
+    { id: "flower-crown", name: "Flower Crown", tier: "fancy" },
+    { id: "party-hat", name: "Party Hat", tier: "common" },
+    { id: "violet-sparkle", name: "Violet Sparkle Hat", tier: "fancy" },
+    { id: "crown", name: "Crown", tier: "fancy" },
+    { id: "pirate-hat", name: "Pirate Hat", tier: "common" },
+    { id: "sun-hat", name: "Sun Hat", tier: "common" },
+    { id: "bow", name: "Big Bow", tier: "common" },
+    { id: "chef-hat", name: "Chef Hat", tier: "common" },
+    { id: "snow-beanie", name: "Snow Beanie", tier: "common" },
+    { id: "bubble-halo", name: "Bubble Halo", tier: "common" },
+    { id: "starfish-clip", name: "Starfish Clip", tier: "common" },
+    { id: "rainbow-hat", name: "Rainbow Hat", tier: "found", how: "Hiding in a rainbow bubble…" }
+  ];
+  const HAT_BY_ID = byId(HATS);
+  const priceOf = (hat) => ECONOMY.hatPrice[hat.tier] || 0;
+
+  const owns = (id) => game.profile.collection.owned.includes(id);
+  const worn = () => HAT_BY_ID[game.profile.hats.wearing.me] && owns(game.profile.hats.wearing.me) ? game.profile.hats.wearing.me : null;
+
+  // Puts a hat on the head. Called by drawDolphin, so a hat shows everywhere the dolphin is drawn.
+  function drawHat(c, id) {
+    const art = HAT_ART[id];
+    if (!art) return;
+    c.save();
+    c.translate(HEAD.x, HEAD.y); c.rotate(HEAD.tilt);
+    c.shadowColor = "rgba(0,34,80,.22)"; c.shadowBlur = 6; c.shadowOffsetY = 3;
+    art(c, performance.now() / 1000);
+    c.restore();
+  }
+
+  /* ---------- the hat shop: dressing room, counter, treasures ---------- */
+
+  const mastered = () => AREAS.filter((_, i) => isDone(i)).length;
+  const shopOpen = () => mastered() >= ECONOMY.hatShopOpensAfterAreas;
+  const coinSplit = (n) => ({ gold: Math.floor(n / ECONOMY.goldValue), reg: n % ECONOMY.goldValue });
+  const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+  const word = (n) => NUMBER_WORDS[n] ?? String(n);
+  const capital = (text) => text[0].toUpperCase() + text.slice(1);
+
+  // Her coins shown as gold 10-coins and regular coins (display only: the save keeps one number).
+  function coinPillHtml(total) {
+    const { gold, reg } = coinSplit(total);
+    return `<span aria-hidden="true">🪙</span> <strong>${total}</strong> coins <span class="split">${gold ? `<i class="mini-coin gold">10</i>×${gold} ` : ""}<i class="mini-coin">★</i>×${reg}</span>`;
+  }
+
+  // A hat on its own (for the shop cards and the treasure shelf). silhouette = a grey shape for things not found yet.
+  function drawHatIcon(canvas, id, silhouette = false) {
+    const c = canvas.getContext("2d");
+    c.setTransform(2, 0, 0, 2, 0, 0);
+    c.clearRect(0, 0, 112, 84);
+    c.save(); c.translate(56, 60);
+    HAT_ART[id](c, 0);
+    if (silhouette) { c.globalCompositeOperation = "source-atop"; c.fillStyle = "#9db4bd"; c.fillRect(-60, -70, 120, 90); }
+    c.restore();
+  }
+
+  function hatCanvas() {
+    const canvas = document.createElement("canvas");
+    canvas.width = 224; canvas.height = 168;
+    return canvas;
+  }
+
+  const shop = { preview: null, hopAt: -1e9, running: false };
+
+  function shopSay(text, speakIt = true) {
+    $("stageSay").textContent = text;
+    if (speakIt) speak(text);
+  }
+
+  function openShop() {
+    if (!shopOpen()) return;
+    shop.preview = worn();
+    showScreen("shopScreen");
+    $("stageName").textContent = game.name;
+    renderShop();
+    shopSay(worn() ? `Welcome back! Tap a hat to try it on.` : "Welcome to the hat shop! Tap a hat to try it on.");
+    if (!shop.running) { shop.running = true; requestAnimationFrame(shopStageLoop); }
+  }
+
+  function renderShop() {
+    const coins = game.profile.coins;
+    $("shopCoins").innerHTML = coinPillHtml(coins);
+    const grid = $("hatGrid");
+    grid.replaceChildren();
+    HATS.forEach((hat) => {
+      const have = owns(hat.id);
+      const price = priceOf(hat);
+      const card = document.createElement("div");
+      card.className = `hat-card${shop.preview === hat.id ? " sel" : ""}`;
+      card.dataset.id = hat.id;
+      const icon = hatCanvas();
+      drawHatIcon(icon, hat.id, hat.tier === "found" && !have);
+      const name = document.createElement("b");
+      name.textContent = hat.tier === "found" && !have ? "? ? ?" : hat.name;
+      const act = document.createElement("button");
+      act.type = "button";
+      if (have && worn() === hat.id) { act.className = "hat-act on"; act.textContent = "⭐ Wearing"; }
+      else if (have) { act.className = "hat-act wear"; act.textContent = "👒 Wear"; }
+      else if (hat.tier === "found") { act.className = "hat-act soon"; act.textContent = "Found in rainbow bubbles"; }
+      else if (coins >= price) { act.className = "hat-act buy"; act.textContent = `Buy · ${price} 🪙`; }
+      else { act.className = "hat-act soon"; act.textContent = `Save up! ${price} 🪙`; }
+      act.addEventListener("click", () => hatAction(hat.id));
+      card.append(icon, name, act);
+      card.addEventListener("click", (event) => { if (!event.target.closest(".hat-act")) tryOn(hat.id); });
+      grid.appendChild(card);
+    });
+    const shown = HAT_BY_ID[shop.preview];
+    $("stageWear").textContent = !shown ? "No hat on" : owns(shown.id) ? `Wearing: ${shown.name}` : `Trying on: ${shown.name} (not yours yet)`;
+  }
+
+  function tryOn(id) {
+    shop.preview = id;
+    shop.hopAt = performance.now();
+    const hat = HAT_BY_ID[id];
+    if (hat.tier === "found" && !owns(id)) shopSay(`${hat.name}! ${hat.how}`);
+    else if (owns(id)) shopSay(`${hat.name}! It looks great on you!`);
+    else shopSay(`Ooh, the ${hat.name}! It costs ${priceOf(hat)} coins.`);
+    renderShop();
+  }
+
+  function hatAction(id) {
+    const hat = HAT_BY_ID[id];
+    if (owns(id)) {
+      if (worn() === id) { game.profile.hats.wearing.me = null; shop.preview = null; shopSay("No hat today!"); }
+      else { game.profile.hats.wearing.me = id; shop.preview = id; shop.hopAt = performance.now(); chirp(); sparkle(4); shopSay(`${hat.name} on! Beautiful!`); }
+      saveProfile(); renderShop();
+    } else if (hat.tier === "found") {
+      tryOn(id);
+    } else if (game.profile.coins >= priceOf(hat)) {
+      shop.preview = id;
+      openPay(id);
+    } else {
+      shop.preview = id; renderShop();
+      shopSay(`You need ${priceOf(hat) - game.profile.coins} more coins for that one. Keep swimming!`);
+    }
+  }
+
+  function shopStageLoop(now) {
+    if ($("shopScreen").classList.contains("hidden")) { shop.running = false; return; }
+    const c = $("shopStage").getContext("2d");
+    c.setTransform(2, 0, 0, 2, 0, 0);
+    const W = 384, H = 300, t = now / 1000;
+    const sea = c.createLinearGradient(0, 0, 0, H);
+    sea.addColorStop(0, "#b8fcff"); sea.addColorStop(.3, "#20d4eb"); sea.addColorStop(1, "#0797ce");
+    c.fillStyle = sea; c.fillRect(0, 0, W, H);
+    c.globalAlpha = .16; c.fillStyle = "white";
+    for (let i = 0; i < 7; i++) { const x = 20 + i * 62 + Math.sin(t + i) * 8; c.beginPath(); c.moveTo(x, 0); c.lineTo(x + 24, 0); c.lineTo(x + 84, H); c.lineTo(x + 52, H); c.fill(); }
+    c.globalAlpha = 1;
+    c.fillStyle = "#ffd83d"; c.font = "900 26px sans-serif"; c.textAlign = "center";
+    [[56, 56], [330, 84], [310, 236], [60, 226]].forEach(([x, y], i) => { c.globalAlpha = .45 + .55 * Math.abs(Math.sin(t * 2 + i * 1.3)); c.fillText("✦", x, y); });
+    c.globalAlpha = 1;
+    const p = (performance.now() - shop.hopAt) / 900;
+    let y = 172 + Math.sin(t * 2) * 5;
+    if (p < 1) y -= Math.abs(Math.sin(p * Math.PI * 2)) * (calmMotion.matches ? 10 : 36) * (1 - p * .5);
+    drawDolphin(c, 196, y, COLORS[game.selectedColor].value, 1.9, p < 1 ? "cheer" : "happy", shop.preview);
+    requestAnimationFrame(shopStageLoop);
+  }
+
+  /* The counter. She pays by moving coins (drag or tap) onto the tray; each is counted aloud. No buzzers, no penalties. */
+
+  const pay = { hat: null, price: 0, gold: 0, reg: 0, trayGold: 0, trayReg: 0, placed: 0, drags: 0, prompts: 0, trades: 0, started: 0, done: false, timer: 0, running: false, mood: "happy", drag: null };
+  const trayValue = () => pay.trayGold * ECONOMY.goldValue + pay.trayReg;
+
+  function paySay(text, speakIt = true, spoken = text) {
+    $("paySay").textContent = text;
+    if (speakIt) speak(spoken);
+  }
+
+  function openPay(id) {
+    const hat = HAT_BY_ID[id];
+    const { gold, reg } = coinSplit(game.profile.coins);
+    Object.assign(pay, { hat, price: priceOf(hat), gold, reg, trayGold: 0, trayReg: 0, placed: 0, drags: 0, prompts: 0, trades: 0, started: performance.now(), done: false, mood: "happy", drag: null });
+    $("payTitle").textContent = `Pay for your ${hat.name}`;
+    $("payOverlay").classList.remove("hidden");
+    $("payOverlay").scrollTop = 0;
+    renderPay();
+    paySay(`The ${hat.name} costs ${pay.price}. Put your coins on the tray!`);
+    clearTimeout(pay.timer);
+    pay.timer = setTimeout(() => payNudge(false), 9000);
+    if (!pay.running) { pay.running = true; requestAnimationFrame(payLoop); }
+  }
+
+  function closePay() {
+    clearTimeout(pay.timer);
+    if (pay.drag?.clone) pay.drag.clone.remove();
+    pay.drag = null;
+    $("payOverlay").classList.add("hidden");
+    if ("speechSynthesis" in window) speechSynthesis.cancel();
+    shop.preview = worn() === pay.hat?.id ? pay.hat.id : shop.preview;
+    renderShop();
+  }
+
+  function coinEl(kind, where) {
+    const coin = document.createElement("button");
+    coin.type = "button";
+    coin.className = `coin${kind === "gold" ? " gold" : ""}`;
+    coin.dataset.kind = kind;
+    coin.dataset.where = where;
+    coin.setAttribute("aria-label", kind === "gold" ? "gold coin worth 10" : "coin worth 1");
+    return coin;
+  }
+
+  const moreText = (rest) => {
+    const tens = Math.floor(rest / ECONOMY.goldValue), ones = rest % ECONOMY.goldValue;
+    if (!tens) return ones === 1 ? "Just one more!" : `${capital(word(ones))} more!`;
+    if (!ones) return tens === 1 ? "Just one more gold coin!" : `${capital(word(tens))} more gold coins!`;
+    return `${capital(word(tens))} gold and ${word(ones)} more!`;
+  };
+
+  function renderPay(glow = false) {
+    $("payCoins").innerHTML = coinPillHtml(game.profile.coins);
+    const price = pay.price, tens = Math.floor(price / ECONOMY.goldValue), ones = price % ECONOMY.goldValue;
+    // The price tag shows its coins as a picture until she has paid a few times, then just the number.
+    const pic = $("priceCoins");
+    pic.replaceChildren();
+    if (game.profile.stats.payments < ECONOMY.priceTagPictureUntil) {
+      for (let i = 0; i < tens; i++) { const coin = coinEl("gold", "tag"); coin.classList.add("small"); coin.tabIndex = -1; pic.appendChild(coin); }
+      for (let i = 0; i < ones; i++) { const coin = coinEl("reg", "tag"); coin.classList.add("small"); coin.tabIndex = -1; pic.appendChild(coin); }
+    }
+    $("priceNum").textContent = `${price} coins`;
+
+    const tray = $("tray");
+    tray.replaceChildren();
+    for (let i = 0; i < pay.trayGold; i++) tray.appendChild(coinEl("gold", "tray"));
+    for (let i = 0; i < pay.trayReg; i++) tray.appendChild(coinEl("reg", "tray"));
+    const rest = price - trayValue();
+    for (let i = 0; i < Math.floor(rest / ECONOMY.goldValue); i++) { const ghost = coinEl("gold", "ghost"); ghost.classList.add("ghost"); ghost.disabled = true; if (glow) ghost.classList.add("glow"); tray.appendChild(ghost); }
+    for (let i = 0; i < rest % ECONOMY.goldValue; i++) { const ghost = coinEl("reg", "ghost"); ghost.classList.add("ghost"); ghost.disabled = true; if (glow) ghost.classList.add("glow"); tray.appendChild(ghost); }
+    const total = trayValue();
+    $("trayTotal").textContent = total;
+    const tt = pay.trayGold, to = pay.trayReg;
+    $("trayTens").textContent = total ? `${tt} ${tt === 1 ? "ten" : "tens"} and ${to} ${to === 1 ? "one" : "ones"}` : "Nothing yet";
+
+    const purse = $("purse");
+    purse.replaceChildren();
+    const goldCap = tens + 1; // enough gold to pay with, plus one to trade
+    for (let i = 0; i < Math.min(pay.gold, goldCap); i++) purse.appendChild(coinEl("gold", "purse"));
+    for (let i = 0; i < pay.reg; i++) purse.appendChild(coinEl("reg", "purse"));
+    const hidden = pay.gold - Math.min(pay.gold, goldCap);
+    $("purseNote").textContent = hidden > 0 ? `+ ${hidden} more gold coin${hidden === 1 ? "" : "s"} waiting in your purse` : "";
+    $("tradeButton").disabled = pay.gold < 1 || pay.done;
+  }
+
+  function popLast(kind) {
+    const coins = [...$("tray").querySelectorAll(`.coin[data-kind="${kind}"]:not(.ghost)`)];
+    coins[coins.length - 1]?.classList.add("pop");
+  }
+
+  function payPlace(kind) {
+    if (pay.done) return;
+    const value = kind === "gold" ? ECONOMY.goldValue : 1;
+    if ((kind === "gold" ? pay.gold : pay.reg) < 1) return;
+    if (trayValue() + value > pay.price) {
+      // Too many: the coin comes straight back. No buzzer.
+      pay.prompts += 1;
+      const coin = [...$("purse").querySelectorAll(`.coin[data-kind="${kind}"]`)][0];
+      coin?.classList.add("back");
+      setTimeout(() => coin?.classList.remove("back"), 600);
+      paySay(kind === "gold" ? "Here's one back! That gold coin is too big for now. Try the little coins." : "Here's one back!");
+      return;
+    }
+    if (kind === "gold") { pay.gold -= 1; pay.trayGold += 1; } else { pay.reg -= 1; pay.trayReg += 1; }
+    pay.placed += 1;
+    coinPing();
+    renderPay();
+    popLast(kind);
+    const total = trayValue();
+    if (total === pay.price) { payComplete(); return; }
+    paySay(String(total));
+    clearTimeout(pay.timer);
+    pay.timer = setTimeout(() => payNudge(true), 3500);
+  }
+
+  function payTake(kind) {
+    if (pay.done) return;
+    if (kind === "gold" && pay.trayGold > 0) { pay.trayGold -= 1; pay.gold += 1; }
+    else if (kind === "reg" && pay.trayReg > 0) { pay.trayReg -= 1; pay.reg += 1; }
+    else return;
+    note(660, 0, .12, "sine", .05);
+    renderPay();
+    clearTimeout(pay.timer);
+    pay.timer = setTimeout(() => payNudge(trayValue() > 0), 3500);
+  }
+
+  // She has paused: gently say how much is left and make the empty spots glow.
+  function payNudge(started) {
+    if (pay.done || $("payOverlay").classList.contains("hidden")) return;
+    if (!started) { paySay("Drag a coin to the tray, or tap it!"); return; }
+    pay.prompts += 1;
+    const rest = pay.price - trayValue();
+    renderPay(true);
+    const needOnes = rest % ECONOMY.goldValue, spareGold = pay.gold - Math.floor(rest / ECONOMY.goldValue);
+    if (needOnes > pay.reg && spareGold > 0) {
+      $("tradeButton").classList.add("glow");
+      paySay(`${moreText(rest)} Tap Trade: a gold coin turns into ten coins!`);
+    } else {
+      paySay(moreText(rest));
+    }
+    pay.timer = setTimeout(() => payNudge(true), 8000);
+  }
+
+  function payTrade() {
+    if (pay.done || pay.gold < 1) return;
+    pay.gold -= 1; pay.reg += ECONOMY.goldValue; pay.trades += 1;
+    $("tradeButton").classList.remove("glow");
+    clearTimeout(pay.timer);
+    renderPay();
+    // The gold coin bursts into ten coins.
+    [...$("purse").querySelectorAll(`.coin[data-kind="reg"]`)].slice(-ECONOMY.goldValue).forEach((coin, i) => { coin.classList.add("pop"); coin.style.animationDelay = `${i * 45}ms`; });
+    sparkle(5);
+    paySay("Ten ones! One gold coin is the same as ten coins.");
+    pay.timer = setTimeout(() => payNudge(trayValue() > 0), 5000);
+  }
+
+  function payComplete() {
+    pay.done = true;
+    clearTimeout(pay.timer);
+    const id = pay.hat.id;
+    // Spending is the only way coins ever go down.
+    game.profile.coins -= pay.price;
+    if (!owns(id)) game.profile.collection.owned.push(id);
+    game.profile.hats.wearing.me = id;
+    game.profile.stats.payments += 1;
+    saveProfile();
+    logAttempt({
+      factId: `pay:${id}`, family: "money", op: "pay", mode: pay.drags ? "drag" : "tap", rtRaw: Math.round(performance.now() - pay.started),
+      correct: true, firstTry: pay.prompts === 0, hint: pay.prompts > 0, context: "money",
+      price: pay.price, dragged: pay.placed, prompts: pay.prompts, trades: pay.trades
+    });
+    pay.mood = "cheer";
+    $("tradeButton").disabled = true;
+    fanfare();
+    paySay(`Paid! Enjoy your new ${pay.hat.name}!`, true, `${pay.price}. Paid! Enjoy your new ${pay.hat.name}!`); // the last coin is counted too
+    $("payCoins").innerHTML = coinPillHtml(game.profile.coins);
+    shop.hopAt = performance.now() + 900;
+    setTimeout(() => { closePay(); shop.preview = id; shop.hopAt = performance.now(); shopSay(`${pay.hat.name} on! You look amazing!`, false); }, 2200);
+  }
+
+  function payLoop(now) {
+    if ($("payOverlay").classList.contains("hidden")) { pay.running = false; return; }
+    const c = $("payDolphin").getContext("2d");
+    c.clearRect(0, 0, 360, 270);
+    const bob = Math.sin(now / 480) * 6, hop = pay.mood === "cheer" ? -Math.abs(Math.sin(now / 220)) * 26 : 0;
+    drawDolphin(c, 190, 140 + bob + hop, COLORS[game.selectedColor].value, 1.55, pay.mood, worn());
+    requestAnimationFrame(payLoop);
+  }
+
+  // Dragging a coin: it follows her finger, and lands on the tray (or back in the purse). A plain tap works too.
+  function overRect(el, x, y, pad = 28) {
+    const r = el.getBoundingClientRect();
+    return x >= r.left - pad && x <= r.right + pad && y >= r.top - pad && y <= r.bottom + pad;
+  }
+
+  function coinDown(event) {
+    const el = event.target.closest?.(".coin");
+    if (!el || pay.done || el.classList.contains("ghost") || el.classList.contains("small") || !["purse", "tray"].includes(el.dataset.where)) return;
+    event.preventDefault();
+    pay.drag = { el, kind: el.dataset.kind, from: el.dataset.where, x0: event.clientX, y0: event.clientY, moved: false, clone: null, id: event.pointerId };
+    try { el.setPointerCapture(event.pointerId); } catch (_) { /* fine without capture */ }
+  }
+
+  function coinMove(event) {
+    const drag = pay.drag;
+    if (!drag || event.pointerId !== drag.id) return;
+    if (!drag.moved && Math.hypot(event.clientX - drag.x0, event.clientY - drag.y0) > 10) {
+      drag.moved = true;
+      drag.clone = drag.el.cloneNode(true);
+      drag.clone.classList.add("drag");
+      document.body.appendChild(drag.clone);
+      drag.el.classList.add("lifted");
+    }
+    if (drag.clone) {
+      drag.clone.style.left = `${event.clientX}px`;
+      drag.clone.style.top = `${event.clientY}px`;
+      $("tray").classList.toggle("over", drag.from === "purse" && overRect($("tray"), event.clientX, event.clientY));
+    }
+  }
+
+  function coinUp(event) {
+    const drag = pay.drag;
+    if (!drag || event.pointerId !== drag.id) return;
+    pay.drag = null;
+    drag.clone?.remove();
+    drag.el.classList.remove("lifted");
+    $("tray").classList.remove("over");
+    if (drag.moved) pay.drags += 1;
+    if (drag.from === "purse") {
+      if (!drag.moved || overRect($("tray"), event.clientX, event.clientY)) payPlace(drag.kind);
+    } else if (!drag.moved || overRect($("purse"), event.clientX, event.clientY)) {
+      payTake(drag.kind);
+    }
+  }
+
+  /* My Treasures: everything she owns, and grey shapes for what is still out there. */
+
+  function openTreasures() {
+    showScreen("treasuresScreen");
+    renderTreasures();
+  }
+
+  function renderTreasures() {
+    $("treasureCoins").innerHTML = coinPillHtml(game.profile.coins);
+    const shelf = $("treasureShelf");
+    shelf.replaceChildren();
+    const seen = new Set(game.profile.collection.seenNew);
+    let found = 0;
+    HATS.forEach((hat) => {
+      const have = owns(hat.id);
+      if (have) found += 1;
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = `treasure${have ? "" : " missing"}${have && worn() === hat.id ? " on" : ""}`;
+      const icon = hatCanvas();
+      drawHatIcon(icon, hat.id, !have);
+      const name = document.createElement("b");
+      name.textContent = have ? hat.name : "? ? ?";
+      const small = document.createElement("small");
+      small.textContent = have ? (worn() === hat.id ? "⭐ Wearing" : "Tap to wear") : hat.how || "In the hat shop!";
+      item.append(icon, name, small);
+      if (have && !seen.has(hat.id)) item.insertAdjacentHTML("beforeend", '<div class="ribbon">NEW!</div>');
+      if (have) item.addEventListener("click", () => {
+        game.profile.hats.wearing.me = worn() === hat.id ? null : hat.id;
+        saveProfile();
+        if (worn()) { chirp(); speak(hat.name); }
+        renderTreasures();
+      });
+      else item.disabled = true;
+      shelf.appendChild(item);
+    });
+    $("treasureCount").textContent = `COLLECTION · ${found} of ${HATS.length} found`;
+    // Anything she has now seen here loses its NEW! ribbon next time.
+    game.profile.collection.seenNew = [...new Set([...game.profile.collection.seenNew, ...game.profile.collection.owned])];
+    saveProfile();
+  }
+
+  function updateShopButton() {
+    const open = shopOpen();
+    $("shopButton").classList.toggle("soon", !open);
+    $("shopButtonText").textContent = open ? "Hat Shop" : "Hat Shop 🔒";
+  }
+
+  function mapNote(text) {
+    const banner = $("mapBanner");
+    banner.textContent = text;
+    banner.classList.remove("hidden");
+    banner.style.animation = "none"; void banner.offsetWidth; banner.style.animation = "";
+  }
+
   /* ---------- the dolphin coach ---------- */
 
   const mascot = { state: "idle", t0: 0, running: false, flip: null, flipDir: -1 };
@@ -778,7 +1333,7 @@
     mctx.save();
     mctx.translate(190, 140 + y);
     mctx.rotate(rotate);
-    drawDolphin(mctx, 0, 0, COLORS[game.selectedColor].value, size, mood);
+    drawDolphin(mctx, 0, 0, COLORS[game.selectedColor].value, size, mood, worn());
     mctx.restore();
     requestAnimationFrame(mascotLoop);
   }
@@ -999,7 +1554,7 @@
     });
     ctx.globalAlpha = 1;
     drawSpeedLines(game.boost, now);
-    drawDolphin(ctx, 245, race.playerY + Math.sin(now * 5) * 4, COLORS[game.selectedColor].value, 1.14);
+    drawDolphin(ctx, 245, race.playerY + Math.sin(now * 5) * 4, COLORS[game.selectedColor].value, 1.14, "happy", worn());
 
     if (race.flash) {
       ctx.fillStyle = race.flash > 0 ? `rgba(255,239,91,${Math.abs(race.flash)})` : `rgba(255,80,120,${Math.abs(race.flash)})`;
@@ -1149,7 +1704,7 @@
     ctx.restore();
   }
 
-  function drawDolphin(c, x, y, color, scale = 1, mood = "happy") {
+  function drawDolphin(c, x, y, color, scale = 1, mood = "happy", hat = null) {
     c.save(); c.translate(x, y); c.scale(scale, scale);
     c.shadowColor = "rgba(0,34,80,.28)"; c.shadowBlur = 16; c.shadowOffsetY = 9;
     const body = c.createLinearGradient(0, -50, 0, 38);
@@ -1174,6 +1729,7 @@
     } else {
       c.beginPath(); c.arc(54, -2, 10, .2, 1.6); c.stroke();
     }
+    if (hat) drawHat(c, hat);
     c.restore();
   }
 
@@ -1506,6 +2062,27 @@
   $("backToMap").addEventListener("click", leaveToMap);
   $("homeButton").addEventListener("click", () => showScreen("startScreen"));
   $("resetButton").addEventListener("click", resetProgress);
+  $("shopButton").addEventListener("click", () => {
+    if (shopOpen()) openShop();
+    else mapNote(`Master ${AREAS[0].name} to open the hat shop!`);
+  });
+  $("treasuresButton").addEventListener("click", openTreasures);
+  $("shopBack").addEventListener("click", () => { if ("speechSynthesis" in window) speechSynthesis.cancel(); showMap(); });
+  $("treasuresBack").addEventListener("click", () => { if ("speechSynthesis" in window) speechSynthesis.cancel(); showMap(); });
+  $("shopToTreasures").addEventListener("click", openTreasures);
+  $("payCancel").addEventListener("click", closePay);
+  $("tradeButton").addEventListener("click", payTrade);
+  $("payOverlay").addEventListener("pointerdown", coinDown);
+  $("payOverlay").addEventListener("pointermove", coinMove);
+  $("payOverlay").addEventListener("pointerup", coinUp);
+  $("payOverlay").addEventListener("pointercancel", coinUp);
+  // Keyboard: Enter or Space on a focused coin moves it (a mouse or finger tap is handled by the pointer events above).
+  $("payOverlay").addEventListener("click", (event) => {
+    const el = event.target.closest?.(".coin");
+    if (!el || event.detail !== 0 || el.classList.contains("ghost") || el.classList.contains("small")) return;
+    if (el.dataset.where === "purse") payPlace(el.dataset.kind); else if (el.dataset.where === "tray") payTake(el.dataset.kind);
+  });
+  window.addEventListener("keydown", (event) => { if (event.key === "Escape" && !$("payOverlay").classList.contains("hidden")) closePay(); });
   $("moveUp").addEventListener("click", () => moveLane(-1));
   $("moveDown").addEventListener("click", () => moveLane(1));
   // Upright phone: tap the left or right half to swim one lane that way, or swipe sideways. Otherwise the dolphin follows her finger.

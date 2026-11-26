@@ -9,7 +9,9 @@ const path = require("path");
 const ROOT = path.resolve(__dirname, "..");
 const OLD = process.argv[2] ? path.resolve(process.argv[2]) : null;
 const fixture = fs.readFileSync(path.join(__dirname, "fixtures", "v2-save.json"), "utf8");
-const url = (dir, query = "?input=choices") => `file://${dir}/index.html${query}`;
+const serve = require("./serve.cjs");
+const bases = {}; // dir -> http base url; filled in before the tests run
+const url = (dir, query = "?input=choices") => `${bases[dir]}/index.html${query}`;
 
 let failures = 0;
 const check = (ok, label, detail = "") => {
@@ -71,6 +73,17 @@ async function playToRace(page, island) {
 (async () => {
   const browser = await chromium.launch();
   const fx = JSON.parse(fixture);
+  const servers = [await serve(ROOT)];
+  bases[ROOT] = servers[0].base;
+  if (OLD) { servers.push(await serve(OLD)); bases[OLD] = servers[1].base; }
+
+  /* 0. Opening index.html straight from the disk still works (no server, no modules) */
+  {
+    const page = await newPage(browser, { saved: fixture });
+    await page.goto(`file://${ROOT}/index.html?input=choices`);
+    check(await page.isVisible("#mapScreen") && await page.locator(".island").count() === 8 && page.errors.length === 0, "index.html opened directly from the file system works", page.errors.join("|"));
+    await page.context().close();
+  }
 
   /* 1. Existing v2 save */
   {
@@ -87,16 +100,17 @@ async function playToRace(page, island) {
     check(JSON.stringify(saved.mysteryField) === '{"keep":"me"}', "unknown fields are kept");
     check(saved.stars === 0 && saved.worldsUnlocked[0] === "sunny-sea" && saved.collection && saved.shop && saved.playToday && saved.friend.met === false && saved.theater.unlocked === false && saved.stats.swims === 0 && saved.hats.wearing, "new v3 fields have defaults");
     check(await page.locator(".island.done").count() === 4 && (await page.locator(".island.current strong").textContent()).includes("Pirate Wreck"), "map shows 4 mastered, Pirate Wreck current");
-    const html = await page.innerHTML("#islandList");
+    const noMarker = (markup) => markup.replace(/<span class="marker"[^>]*>.*?<\/span>/g, "").replace(/<canvas class="marker"[^>]*><\/canvas>/g, "");
+    const html = noMarker(await page.innerHTML("#islandList"));
     await page.reload();
     check(await page.evaluate(() => localStorage.getItem("piperDolphinMath2_backup_v2")) === fixture, "backup is written once (still the original after reload)");
-    check(await page.innerHTML("#islandList") === html, "map is the same after reload");
+    check(noMarker(await page.innerHTML("#islandList")) === html, "map is the same after reload");
     check(JSON.parse(await page.evaluate(() => localStorage.getItem("piperDolphinMath2"))).v === 3, "still v3 after reload");
     check(page.errors.length === 0, "no console errors (existing save)", page.errors.join(" | "));
     if (OLD) {
       const old = await newPage(browser, { saved: fixture });
       await old.goto(url(OLD));
-      const oldHtml = await old.innerHTML("#islandList");
+      const oldHtml = noMarker(await old.innerHTML("#islandList"));
       check(oldHtml === html, "map after migration is identical to the old game's map for the same save");
       await old.context().close();
     }
@@ -142,7 +156,7 @@ async function playToRace(page, island) {
       check(Number.isInteger(w.rtRaw) && w.rtRaw >= 0 && w.rtAdj === null && w.session === r.session && typeof w.t === "number", "rtRaw in ms, rtAdj null until calibration exists, one session");
     }
     const csv = await page.evaluate(() => DD.log.toCSV());
-    check(csv.split("\n")[0] === "t,session,factId,family,op,mode,rtRaw,rtAdj,correct,firstTry,hint,context,timing" && csv.split("\n").length === log.length + 1, "CSV export has a header and one row per entry");
+    check(csv.split("\n")[0] === "t,session,factId,family,op,mode,rtRaw,rtAdj,correct,firstTry,hint,context,timing,price,dragged,prompts,trades" && csv.split("\n").length === log.length + 1, "CSV export has a header and one row per entry");
     check(JSON.parse(await page.evaluate(() => DD.log.toJSON())).length === log.length, "JSON export works");
     // The log survives a reload (checked above). Next: the cap and the 15-minute session rule, on a page that starts with a big old log.
     await page.context().close();
@@ -166,11 +180,12 @@ async function playToRace(page, island) {
     await page2.goto(url(ROOT));
     await page2.locator(".island").nth(4).click();
     await click(page2, (await answerOf(page2)).answer);
-    await page2.waitForTimeout(1200);
+    await page2.waitForFunction(() => JSON.parse(localStorage.getItem("piperDolphinLog") || "[]").length >= 1, null, { timeout: 15000 });
     await page2.reload();
     await page2.locator(".island").nth(4).click();
+    await page2.waitForSelector(".answer-button:not([disabled])");
     await click(page2, (await answerOf(page2)).answer);
-    await page2.waitForTimeout(1200);
+    await page2.waitForFunction(() => JSON.parse(localStorage.getItem("piperDolphinLog") || "[]").length >= 2, null, { timeout: 15000 });
     const two = JSON.parse(await page2.evaluate(() => localStorage.getItem("piperDolphinLog")));
     check(two.length === 2 && two[0].session === two[1].session, "the session continues across a reload within 15 minutes");
 
@@ -337,6 +352,7 @@ async function playToRace(page, island) {
   }
 
   await browser.close();
+  servers.forEach((server) => server.close());
   console.log(failures ? `\n${failures} check(s) FAILED` : "\nAll checks passed");
   process.exit(failures ? 1 : 0);
 })();
