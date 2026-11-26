@@ -666,9 +666,9 @@
       game.justMastered = game.areaIndex;
       praise = `You mastered ${island.name}! Hooray!`;
     }
+    mascotFlip(firstTry && game.streak > 0 && game.streak % 3 === 0);
     saveProfile();
     say(praise);
-    setMascot("cheer");
     burstStars();
     if (game.justMastered === game.areaIndex) fanfare(); else { chirp(); sparkle(4); }
     game.nextTimer = setTimeout(() => {
@@ -723,11 +723,22 @@
 
   /* ---------- the dolphin coach ---------- */
 
-  const mascot = { state: "idle", t0: 0, running: false };
+  const mascot = { state: "idle", t0: 0, running: false, flip: null, flipDir: -1 };
+  const FLIP_MS = { 1: 650, 2: 1000 }; // both finish well inside the 1.7 s pause before the next question
+  const calmMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
-  function setMascot(state) {
+  function setMascot(state, flip = null) {
     mascot.state = state;
+    mascot.flip = flip;
     mascot.t0 = performance.now();
+  }
+
+  // A correct answer earns a flip: front flips and back flips take turns, and a 3-in-a-row streak earns a double.
+  function mascotFlip(double) {
+    mascot.flipDir = -mascot.flipDir; // +1 = front flip (nose dips first), -1 = back flip
+    const turns = double ? 2 : 1;
+    game.profile.stats.flips += turns;
+    setMascot("cheer", { dir: mascot.flipDir, turns, ms: FLIP_MS[turns] });
   }
 
   function startMascot() {
@@ -742,7 +753,18 @@
     let y = Math.sin(now / 480) * 6;
     let rotate = 0;
     let mood = "happy";
-    if (mascot.state === "cheer" && p < 1.4) {
+    let size = 1.55;
+    const flip = mascot.state === "cheer" ? mascot.flip : null;
+    if (flip) {
+      const t = Math.min(1, (now - mascot.t0) / flip.ms);
+      const arc = Math.sin(t * Math.PI); // 0 -> 1 -> 0: up and back down
+      y -= arc * (calmMotion.matches ? 22 : 30);
+      if (!calmMotion.matches) {
+        rotate = flip.dir * flip.turns * Math.PI * 2 * (1 - Math.cos(t * Math.PI)) / 2;
+        size *= 1 - .5 * arc; // tucked in while turning, so the dolphin stays inside the picture
+      }
+      if (t < 1 || p < 1.4) mood = "cheer";
+    } else if (mascot.state === "cheer" && p < 1.4) {
       y -= Math.abs(Math.sin(Math.min(p, 1) * Math.PI * 2)) * 62 * (1 - Math.min(p, 1) * .35);
       rotate = Math.sin(Math.min(p, 1) * Math.PI * 4) * .14;
       mood = "cheer";
@@ -756,7 +778,7 @@
     mctx.save();
     mctx.translate(190, 140 + y);
     mctx.rotate(rotate);
-    drawDolphin(mctx, 0, 0, COLORS[game.selectedColor].value, 1.55, mood);
+    drawDolphin(mctx, 0, 0, COLORS[game.selectedColor].value, size, mood);
     mctx.restore();
     requestAnimationFrame(mascotLoop);
   }

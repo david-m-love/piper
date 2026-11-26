@@ -6,7 +6,7 @@ A kindergarten addition game. Piper explores an island map; each of the 8 island
 - A fact is learned after 2 right answers in a row on the first try. Learn every fact on an island to master it and unlock the next one.
 - After each round of 6 questions there is a 25-second free swim. The scenery gets richer on every island (more fish, treasure, kelp, a rainbow, glowing lights, a palace).
 - Sound is all generated in code (no audio files): a calm ocean background with bubbles, bubble pops on taps, splashes when she changes lane, coin and hoop pings, a springy jellyfish boing, a layered dolphin whistle, and a fanfare for mastering an island. 🎵 turns just the music off; 🔊 mutes everything.
-- Her dolphin coaches on the math screen: it chirps, cheers, counts with her and reads each question aloud (turn the speaker off in the top bar). Tap the dolphin to hear the question again.
+- Her dolphin coaches on the math screen: it does a flip for every right answer (front and back flips take turns, and a double flip for 3 in a row), chirps, cheers, counts with her and reads each question aloud (turn the speaker off in the top bar). Tap the dolphin to hear the question again.
 - Progress, coins, name and dolphin color are saved in the browser (`localStorage`), so she picks up where she left off. "Start over" on the map resets the math progress only; coins, hats and treasures are always kept.
 
 Open `index.html` directly, or use the included preview server. No packages need to be installed.
