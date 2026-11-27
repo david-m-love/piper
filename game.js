@@ -745,7 +745,11 @@
     meetVioletStars: 3, // stars (one per island mastered) before she meets Violet
     violetMaxCoins: 3, // coins Violet finds in one swim ...
     violetFirstAt: 6, // ... the first after this many seconds ...
-    violetEvery: 8 // ... then one every this many seconds
+    violetEvery: 8, // ... then one every this many seconds
+    jumpMs: 1000, // how long a jump lasts
+    ringCoins: 5, // a golden sky ring, passed mid-jump
+    ringsPerSwim: 2, // rings are rare: about 1 spawn in 12, and at most this many in a swim
+    ringEvery: 12
   };
   const VIOLET_OWN_HAT = "violet-sparkle"; // Violet arrives wearing it (it is hers; Piper can still buy her own)
 
@@ -1597,7 +1601,15 @@
       world: 0,
       flash: 0,
       // Violet swims beside her once they have met, and now and then finds a coin.
-      violet: game.profile.friend.met ? { y: lanes[1] + 78, found: 0, nextAt: ECONOMY.violetFirstAt, cheerUntil: 0, popAt: -1e9 } : null
+      violet: game.profile.friend.met ? { y: lanes[1] + 78, found: 0, nextAt: ECONOMY.violetFirstAt, cheerUntil: 0, popAt: -1e9, waveUntil: 0, flip: null } : null,
+      // Jumping: a hop toward the camera (she grows a little and a shadow shows on the water). A second tap mid-air is a flip.
+      jump: null,
+      flipDir: -1,
+      splashes: [],
+      spawns: 0,
+      // Which spawns become a golden ring: one in about 12, at most two a swim. (Counted, not random, so the rest of the swim is unchanged.)
+      ringTurns: Array.from({ length: ECONOMY.ringsPerSwim }, (_, i) => 5 + (game.profile.stats.swims * 7) % 6 + i * ECONOMY.ringEvery),
+      ringHinted: false
     };
     game.violetFound = 0;
     $("raceIsland").textContent = AREAS[game.areaIndex].name;
@@ -1619,14 +1631,75 @@
     updateRace(dt);
     drawRace();
     $("raceCoins").textContent = game.roundCoins;
+    const air = race.jump && performance.now() < race.jump.until;
+    $("jumpButton").classList.toggle("nudge", !air && race.objects.some((o) => o.type === "ring" && !o.hit && o.x > 245 && o.x < 900));
     if (elapsed >= race.duration) endRaceRound();
     else requestAnimationFrame(raceLoop);
+  }
+
+  function showCallout(text, ms) {
+    $("raceCallout").textContent = text;
+    $("raceCallout").style.opacity = "1";
+    clearTimeout(game.calloutTimer);
+    game.calloutTimer = setTimeout(() => { if (game.race?.active) $("raceCallout").style.opacity = "0"; }, ms);
+  }
+
+  const easeTurn = (f) => (1 - Math.cos(f * Math.PI)) / 2; // 0 -> 1, gentle at both ends
+
+  // Where a jump is right now: how high (0..1), how far round a flip has turned, and how much to tuck in so she stays in view.
+  function jumpPose(jump, t) {
+    if (!jump || t >= jump.until) return null;
+    const lift = Math.sin((t - jump.t0) / (jump.until - jump.t0) * Math.PI);
+    let rot = 0, tuck = 1, flipping = false;
+    if (jump.flip && t >= jump.flip.t0) {
+      const f = Math.min(1, (t - jump.flip.t0) / jump.flip.ms);
+      flipping = true;
+      if (!calmMotion.matches) { rot = jump.flip.dir * Math.PI * 2 * easeTurn(f); tuck = 1 - .35 * Math.sin(f * Math.PI); }
+    }
+    return { lift, rot, tuck, flipping };
+  }
+
+  function addSplash(race, y) { race.splashes.push({ y, t0: performance.now() }); }
+
+  // The Jump button (or Space). Tap once to hop; tap again while in the air to flip.
+  function doJump() {
+    const race = game.race;
+    if (!race?.active) return;
+    const now = performance.now(), jump = race.jump;
+    if (!jump || now >= jump.until) {
+      race.jump = { t0: now, until: now + ECONOMY.jumpMs, flip: null, landed: false };
+      whistle(520, 1250, 0, .16, .045);
+      addSplash(race, race.playerY);
+    } else if (!jump.flip) {
+      startFlip(race, jump.until - now);
+    }
+  }
+
+  // A flip that always finishes by the time she lands (so a late tap just makes a quicker spin).
+  function startFlip(race, ms) {
+    const jump = race.jump, now = performance.now();
+    if (!jump || jump.flip || ms < 80) return;
+    race.flipDir = -race.flipDir;
+    jump.flip = { t0: now, ms, dir: race.flipDir };
+    game.profile.stats.flips += 1;
+    note(660, 0, .12, "triangle", .05); note(990, .07, .14, "triangle", .05);
+    if (race.violet) race.violet.flip = { t0: now + 120, ms: Math.max(200, ms - 120), dir: race.flipDir }; // Violet flips along
+  }
+
+  function updateJump(race) {
+    const jump = race.jump, now = performance.now();
+    if (!jump || jump.landed || now < jump.until) return;
+    jump.landed = true;
+    splash();
+    addSplash(race, race.playerY);
+    if (jump.flip) { chirp(); sparkle(5); race.flash = Math.max(race.flash, .2); } // landing a flip: sparkles and a happy whistle, no coins
   }
 
   function updateRace(dt) {
     const race = game.race;
     race.playerY += (race.targetY - race.playerY) * Math.min(1, dt * 9);
     if (race.violet) updateViolet(race, dt);
+    updateJump(race);
     const speed = 255 + game.boost * 32;
     race.world += speed * dt;
     if (Math.random() < dt * 24) {
@@ -1641,7 +1714,21 @@
     }
     race.objects.forEach((obj) => { obj.x -= speed * dt; obj.spin += dt * 5; });
     const dolphinX = 245;
+    const airborne = race.jump && performance.now() < race.jump.until;
     race.objects.forEach((obj) => {
+      // A golden ring only counts mid-jump (and is a little roomier to hit); swimming under it does nothing at all.
+      if (obj.type === "ring") {
+        if (obj.hit || !airborne || Math.abs(obj.x - dolphinX) > 130 || Math.abs(obj.y - race.playerY) > 75) return;
+        obj.hit = true;
+        game.roundCoins += ECONOMY.ringCoins; race.flash = .5; game.profile.stats.rings += 1;
+        ringPing();
+        // Passing through a ring is an automatic flip, and a ring caught right at the end of a jump gives her a little extra air to finish it.
+        race.jump.until = Math.max(race.jump.until, performance.now() + 350);
+        startFlip(race, race.jump.until - performance.now());
+        if (race.violet) { race.violet.waveUntil = performance.now() + 1400; race.violet.cheerUntil = race.violet.waveUntil; }
+        showCallout(`🌟 Golden ring! +${ECONOMY.ringCoins} coins!`, 1600);
+        return;
+      }
       if (obj.hit || Math.abs(obj.x - dolphinX) > 54 || Math.abs(obj.y - race.playerY) > 55) return;
       obj.hit = true;
       if (obj.type === "coin") {
@@ -1670,18 +1757,48 @@
       game.roundCoins += 1;
       game.violetFound = v.found;
       coinPing();
-      $("raceCallout").textContent = `💗 ${game.profile.friend.name} found a coin!`;
-      $("raceCallout").style.opacity = "1";
-      clearTimeout(game.calloutTimer);
-      game.calloutTimer = setTimeout(() => { if (game.race?.active) $("raceCallout").style.opacity = "0"; }, 1800);
+      showCallout(`💗 ${game.profile.friend.name} found a coin!`, 1800);
     }
+  }
+
+  // Ripples and droplets where she leaves and lands in the water.
+  function drawSplashes(race) {
+    const t = performance.now();
+    race.splashes = race.splashes.filter((sp) => t - sp.t0 < 650);
+    race.splashes.forEach((sp) => {
+      const age = (t - sp.t0) / 650;
+      ctx.save();
+      ctx.globalAlpha = 1 - age; ctx.strokeStyle = "white"; ctx.fillStyle = "white"; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.ellipse(245, sp.y + 46, 40 + age * 80, 10 + age * 18, 0, 0, Math.PI * 2); ctx.stroke();
+      for (let i = 0; i < 9; i++) {
+        const a = i / 9 * Math.PI * 2, r = 20 + age * 70;
+        ctx.beginPath(); ctx.arc(245 + Math.cos(a) * r * 1.3, sp.y + 46 + Math.sin(a) * r * .5 - Math.sin(age * Math.PI) * 26, 4 * (1 - age) + 1, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.restore();
+    });
   }
 
   function drawViolet(race, now) {
     const v = race.violet, t = performance.now();
     const cheer = t < v.cheerUntil;
     const x = 150 + Math.sin(now * 1.3) * 8, y = v.y + Math.sin(now * 4.2 + 1) * 4;
-    drawDolphin(ctx, x, y, game.profile.friend.color, .95, cheer ? "cheer" : "happy", wornBy("violet"), true);
+    // She flips when Piper flips, and wiggles happily (with a floating heart) after Piper goes through a ring.
+    let rot = 0, size = .95;
+    const turn = v.flip ? (t - v.flip.t0) / v.flip.ms : -1;
+    if (turn >= 0 && turn < 1) {
+      if (!calmMotion.matches) { rot = v.flip.dir * Math.PI * 2 * easeTurn(turn); size *= 1 - .3 * Math.sin(turn * Math.PI); }
+    } else if (t < v.waveUntil && !calmMotion.matches) {
+      rot = Math.sin(t / 60) * .2;
+    }
+    ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
+    drawDolphin(ctx, 0, 0, game.profile.friend.color, size, cheer || (turn >= 0 && turn < 1) ? "cheer" : "happy", wornBy("violet"), true);
+    ctx.restore();
+    if (t < v.waveUntil) {
+      const w = 1 - (v.waveUntil - t) / 1400;
+      ctx.save(); ctx.translate(x + 30, y - 70 - w * 34); if (portrait) ctx.rotate(Math.PI / 2);
+      ctx.globalAlpha = 1 - w; ctx.font = "34px serif"; ctx.textAlign = "center"; ctx.fillText("💗", 0, 0);
+      ctx.restore();
+    }
     const age = (t - v.popAt) / 1000;
     if (age >= 0 && age < 1) { // a little "+1" floats up from her
       ctx.save(); ctx.translate(x + 10, y - 70 - age * 40); if (portrait) ctx.rotate(Math.PI / 2);
@@ -1695,6 +1812,12 @@
     const race = game.race;
     const lane = Math.floor(Math.random() * 3);
     const chance = Math.random();
+    race.spawns += 1;
+    if (race.ringTurns.includes(race.spawns)) {
+      race.objects.push({ type: "ring", x: VIEW_W + 90, y: race.lanes[lane], spin: 0, hit: false });
+      if (!race.ringHinted) { race.ringHinted = true; showCallout("✨ A golden ring! Tap Jump to leap through it!", 2600); }
+      return;
+    }
     if (chance < .1) {
       race.objects.push({ type: "jelly", x: VIEW_W + 70, y: race.lanes[lane], spin: 0, hit: false });
     } else if (chance < .24) {
@@ -1764,7 +1887,19 @@
     ctx.globalAlpha = 1;
     drawSpeedLines(game.boost, now);
     if (race.violet) drawViolet(race, now);
-    drawDolphin(ctx, 245, race.playerY + Math.sin(now * 5) * 4, COLORS[game.selectedColor].value, 1.14, "happy", worn());
+    const py = race.playerY + Math.sin(now * 5) * 4, pose = jumpPose(race.jump, performance.now());
+    drawSplashes(race);
+    if (pose) {
+      // up toward the camera: bigger, with her shadow on the water below
+      ctx.save();
+      ctx.fillStyle = `rgba(0,40,90,${.24 - .1 * pose.lift})`;
+      ctx.beginPath(); ctx.ellipse(245, py + 46 + pose.lift * 30, 66 * (1 - .15 * pose.lift), 14 * (1 - .2 * pose.lift), 0, 0, Math.PI * 2); ctx.fill();
+      ctx.translate(245, py); ctx.rotate(pose.rot);
+      drawDolphin(ctx, 0, 0, COLORS[game.selectedColor].value, 1.14 * (1 + .3 * pose.lift) * pose.tuck, pose.flipping ? "cheer" : "happy", worn());
+      ctx.restore();
+    } else {
+      drawDolphin(ctx, 245, py, COLORS[game.selectedColor].value, 1.14, "happy", worn());
+    }
 
     if (race.flash) {
       ctx.fillStyle = race.flash > 0 ? `rgba(255,239,91,${Math.abs(race.flash)})` : `rgba(255,80,120,${Math.abs(race.flash)})`;
@@ -1904,6 +2039,20 @@
       ctx.fillStyle = "#ffcd2e"; ctx.strokeStyle = "#fff39c"; ctx.lineWidth = 5;
       ctx.beginPath(); ctx.ellipse(0, 0, width, 31, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
       ctx.fillStyle = "#e6a512"; ctx.font = "900 26px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; upright(); ctx.fillText("★", 0, 2);
+    } else if (obj.type === "ring") {
+      // A golden ring floating above the water: bigger and brighter than a hoop, with its shadow on the water beneath.
+      const bob = Math.sin(obj.spin * .7) * 5;
+      ctx.fillStyle = "rgba(0,40,90,.22)"; ctx.beginPath(); ctx.ellipse(12, 98, 46, 12, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.translate(0, bob);
+      const gold = ctx.createLinearGradient(-40, -80, 40, 80);
+      gold.addColorStop(0, "#fff7b0"); gold.addColorStop(.5, "#ffc61a"); gold.addColorStop(1, "#ff9a1a");
+      ctx.strokeStyle = gold; ctx.lineWidth = 18; ctx.shadowColor = "#fffbd0"; ctx.shadowBlur = 34;
+      ctx.beginPath(); ctx.ellipse(0, 0, 48, 80, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.shadowBlur = 0; ctx.strokeStyle = "rgba(255,255,255,.75)"; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.ellipse(0, 0, 40, 72, 0, Math.PI * 1.1, Math.PI * 1.7); ctx.stroke();
+      ctx.fillStyle = "white"; ctx.font = "900 22px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; upright(); ctx.fillText("+5", 0, 0);
+      for (let i = 0; i < 3; i++) { const a = obj.spin * 1.4 + i * 2.1; ctx.globalAlpha = .6 + .4 * Math.sin(obj.spin * 3 + i); ctx.font = "900 20px sans-serif"; ctx.fillText("✦", Math.cos(a) * 60, Math.sin(a) * 90); }
+      ctx.globalAlpha = 1;
     } else if (obj.type === "hoop") {
       ctx.strokeStyle = theme.hoop.color; ctx.lineWidth = 15; ctx.shadowColor = "#fff59d"; ctx.shadowBlur = theme.hoop.glow;
       ctx.beginPath(); ctx.ellipse(0, 0, 35, 68, 0, 0, Math.PI * 2); ctx.stroke();
@@ -1960,6 +2109,7 @@
     if (!game.race?.active) return;
     game.race.active = false;
     game.profile.coins += game.roundCoins;
+    game.profile.stats.swims += 1;
     saveProfile();
     if (game.justMastered === AREAS.length - 1) { setTimeout(finishGame, 800); return; }
     $("raceCallout").textContent = `Great swimming! ${game.roundCoins} coins!${game.violetFound ? ` 💗 ${game.profile.friend.name} found ${game.violetFound}.` : ""}`;
@@ -2171,6 +2321,7 @@
 
   function oops() { note(330, 0, .2, "sine", .05); note(262, .17, .3, "sine", .05); }
   function coinPing() { note(988, 0, .12, "sine", .06); note(1319, .07, .22, "sine", .06); }
+  function ringPing() { [880, 1175, 1568, 2093].forEach((f, i) => note(f, i * .07, .3, "triangle", .06)); sparkle(6); chirp(); }
   function hoopPing() { [784, 988, 1175, 1568].forEach((f, i) => note(f, i * .06, .22, "triangle", .06)); }
 
   // A run of twinkling notes going up.
@@ -2299,6 +2450,9 @@
     if (el.dataset.where === "purse") payPlace(el.dataset.kind); else if (el.dataset.where === "tray") payTake(el.dataset.kind);
   });
   window.addEventListener("keydown", (event) => { if (event.key === "Escape" && !$("payOverlay").classList.contains("hidden")) closePay(); });
+  // Pointer-down (not click) so a jump happens the instant she taps; Enter on the focused button still works.
+  $("jumpButton").addEventListener("pointerdown", (event) => { event.preventDefault(); doJump(); });
+  $("jumpButton").addEventListener("click", (event) => { if (event.detail === 0) doJump(); });
   $("moveUp").addEventListener("click", () => moveLane(-1));
   $("moveDown").addEventListener("click", () => moveLane(1));
   // Upright phone: tap the left or right half to swim one lane that way, or swipe sideways. Otherwise the dolphin follows her finger.
@@ -2345,6 +2499,7 @@
   });
   window.addEventListener("keydown", (event) => {
     if (event.target instanceof HTMLInputElement) return;
+    if (event.key === " " && game.race?.active) { event.preventDefault(); if (!event.repeat) doJump(); }
     if (["ArrowUp", "ArrowLeft", "w", "a"].includes(event.key)) { event.preventDefault(); moveLane(-1); }
     if (["ArrowDown", "ArrowRight", "s", "d"].includes(event.key)) { event.preventDefault(); moveLane(1); }
   });
@@ -2371,7 +2526,7 @@
   document.addEventListener("keydown", unlockAudio);
   document.addEventListener("pointerdown", (event) => {
     const button = event.target.closest?.("button");
-    if (button && !["moveUp", "moveDown"].includes(button.id)) pop();
+    if (button && !["moveUp", "moveDown", "jumpButton"].includes(button.id)) pop();
   }, { passive: true });
   // The attempt log is written shortly after each answer; make sure the last ones are saved when she leaves.
   document.addEventListener("visibilitychange", () => { if (document.hidden) flushLog(); });

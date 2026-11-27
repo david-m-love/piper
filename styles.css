@@ -422,3 +422,11 @@ canvas#payDolphin { background: transparent; aspect-ratio: auto; width: 150px; h
 .meet-say::before { display: none; }
 .meet-screen .big-button { min-width: 260px; }
 .meet-screen .meet-say { flex: none; align-self: center; display: flex; align-items: center; justify-content: center; }
+
+/* ===== Jump (Phase 4) ===== */
+.race-controls .race-hint { grid-column: 1 / -1; }
+.race-controls .jump-button { height: var(--tap-primary); min-width: 0; border-radius: 22px; color: white; background: linear-gradient(135deg, #ff648e, #f13777); box-shadow: 0 6px 0 #b91f57; font-size: 28px; font-weight: 1000; touch-action: manipulation; }
+.race-controls .jump-button:active { transform: translateY(4px); box-shadow: 0 2px 0 #b91f57; }
+.race-controls .jump-button.nudge { animation: jumpNudge .5s ease-in-out infinite alternate; }
+@keyframes jumpNudge { to { transform: scale(1.06); box-shadow: 0 6px 0 #b91f57, 0 0 0 8px rgba(255,216,61,.75); } }
+@media (max-width: 760px) { .race-controls .jump-button { font-size: 24px; } }
