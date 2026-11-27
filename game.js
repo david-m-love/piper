@@ -87,7 +87,7 @@
 
   const $ = (id) => document.getElementById(id);
   const pick = (items) => items[Math.floor(Math.random() * items.length)];
-  const screens = ["startScreen", "mapScreen", "mathScreen", "raceScreen", "finishScreen", "shopScreen", "treasuresScreen", "theaterScreen"]; // theaterScreen arrives in a later phase
+  const screens = ["startScreen", "mapScreen", "mathScreen", "raceScreen", "finishScreen", "shopScreen", "treasuresScreen", "meetScreen", "theaterScreen"]; // theaterScreen arrives in a later phase
   const canvas = $("raceCanvas");
   const ctx = canvas.getContext("2d");
   const mascotCanvas = $("mascot");
@@ -354,6 +354,9 @@
     bestStreak: 0,
     roundCoins: 0,
     justMastered: null,
+    justStar: false,
+    violetFound: 0,
+    calloutTimer: 0,
     nextTimer: 0,
     race: null
   };
@@ -419,21 +422,23 @@
   function showMap(afterRace = false) {
     $("mapTitle").textContent = `${game.name}'s adventure`;
     $("mapCoins").textContent = game.profile.coins;
+    $("mapStars").textContent = game.profile.stars;
     const banner = $("mapBanner");
     if (game.justMastered !== null) {
       const next = AREAS[game.justMastered + 1];
       banner.textContent = next
-        ? `🎉 You mastered ${AREAS[game.justMastered].name}! ${next.name} is open!`
-        : `🎉 You mastered ${AREAS[game.justMastered].name}!`;
+        ? `🎉 You mastered ${AREAS[game.justMastered].name}! ${next.name} is open!${game.justStar ? " ⭐ +1 star!" : ""}`
+        : `🎉 You mastered ${AREAS[game.justMastered].name}!${game.justStar ? " ⭐ +1 star!" : ""}`;
       banner.classList.remove("hidden");
     } else if (afterRace) {
-      banner.textContent = `Great swimming! You found ${game.roundCoins} coins!`;
+      banner.textContent = `Great swimming! You found ${game.roundCoins} coins!${game.violetFound ? ` (${game.profile.friend.name} found ${game.violetFound}!)` : ""}`;
       banner.classList.remove("hidden");
     } else {
       banner.classList.add("hidden");
     }
     const unlockedNow = game.justMastered;
     game.justMastered = null;
+    game.justStar = false;
     renderMap(unlockedNow === null ? -1 : unlockedNow + 1);
     updateShopButton();
     showScreen("mapScreen");
@@ -669,6 +674,7 @@
     const island = AREAS[game.areaIndex];
     if (!isDone(game.areaIndex) && areaProgress(game.areaIndex) === factsOf(island).length) {
       game.profile.done[island.id] = true;
+      game.justStar = awardStar("area", island.id);
       game.justMastered = game.areaIndex;
       praise = `You mastered ${island.name}! Hooray!`;
     }
@@ -735,8 +741,13 @@
     goldValue: 10, // one gold coin is worth ten regular coins (display only: the save stores a single number)
     hatPrice: { common: 20, fancy: 45 },
     hatShopOpensAfterAreas: 1, // areas mastered before the hat shop opens
-    priceTagPictureUntil: 3 // the price tag shows its coins as a picture until she has paid this many times
+    priceTagPictureUntil: 3, // the price tag shows its coins as a picture until she has paid this many times
+    meetVioletStars: 3, // stars (one per island mastered) before she meets Violet
+    violetMaxCoins: 3, // coins Violet finds in one swim ...
+    violetFirstAt: 6, // ... the first after this many seconds ...
+    violetEvery: 8 // ... then one every this many seconds
   };
+  const VIOLET_OWN_HAT = "violet-sparkle"; // Violet arrives wearing it (it is hers; Piper can still buy her own)
 
   const HEAD = { x: 21, y: -30, tilt: .18 }; // where hats sit on the dolphin, in drawDolphin's own units
 
@@ -845,7 +856,14 @@
   const priceOf = (hat) => ECONOMY.hatPrice[hat.tier] || 0;
 
   const owns = (id) => game.profile.collection.owned.includes(id);
-  const worn = () => HAT_BY_ID[game.profile.hats.wearing.me] && owns(game.profile.hats.wearing.me) ? game.profile.hats.wearing.me : null;
+  // Which hat "me" (Piper) or "violet" has on. Piper only wears hats she owns; Violet also has her own sparkle hat.
+  function wornBy(who) {
+    const id = game.profile.hats.wearing[who];
+    if (!HAT_BY_ID[id]) return null;
+    return who === "me" && !owns(id) ? null : id;
+  }
+  const worn = () => wornBy("me");
+  const haveFor = (id, who) => owns(id) || (who === "violet" && id === VIOLET_OWN_HAT);
 
   // Puts a hat on the head. Called by drawDolphin, so a hat shows everywhere the dolphin is drawn.
   function drawHat(c, id) {
@@ -859,6 +877,22 @@
   }
 
   /* ---------- the hat shop: dressing room, counter, treasures ---------- */
+
+  // Stars come only from math: one for every island mastered (never spent, never taken away). The log makes each one count once.
+  function awardStar(source, id) {
+    const log = game.profile.starLog;
+    if (log.some((entry) => entry.source === source && entry.id === id)) return false;
+    log.push({ t: Date.now(), source, id });
+    game.profile.stars += 1;
+    return true;
+  }
+
+  // Islands she mastered before stars existed (or in an older save) earn their star too.
+  function backfillStars() {
+    let changed = false;
+    AREAS.forEach((area, i) => { if (isDone(i) && awardStar("area", area.id)) changed = true; });
+    if (changed) saveProfile();
+  }
 
   const mastered = () => AREAS.filter((_, i) => isDone(i)).length;
   const shopOpen = () => mastered() >= ECONOMY.hatShopOpensAfterAreas;
@@ -890,18 +924,38 @@
     return canvas;
   }
 
-  const shop = { preview: null, hopAt: -1e9, running: false };
+  const shop = { preview: null, who: "me", hopAt: -1e9, running: false };
 
   function shopSay(text, speakIt = true) {
     $("stageSay").textContent = text;
     if (speakIt) speak(text);
   }
 
+  const whoName = (who) => (who === "violet" ? game.profile.friend.name : game.name);
+
+  // "Me / Violet" switch, shown once she has met Violet. Whoever is chosen gets the hat she taps.
+  function renderWho(container) {
+    const box = $(container);
+    box.replaceChildren();
+    const met = game.profile.friend.met;
+    box.classList.toggle("hidden", !met);
+    if (!met) return;
+    [["me", `🐬 Me`], ["violet", `💗 ${game.profile.friend.name}`]].forEach(([who, label]) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.setAttribute("role", "radio");
+      button.setAttribute("aria-checked", String(shop.who === who));
+      button.textContent = label;
+      button.addEventListener("click", () => { shop.who = who; shop.preview = wornBy(who); shop.hopAt = performance.now(); if ($("treasuresScreen").classList.contains("hidden")) renderShop(); else renderTreasures(); });
+      box.appendChild(button);
+    });
+  }
+
   function openShop() {
     if (!shopOpen()) return;
+    shop.who = "me";
     shop.preview = worn();
     showScreen("shopScreen");
-    $("stageName").textContent = game.name;
     renderShop();
     shopSay(worn() ? `Welcome back! Tap a hat to try it on.` : "Welcome to the hat shop! Tap a hat to try it on.");
     if (!shop.running) { shop.running = true; requestAnimationFrame(shopStageLoop); }
@@ -910,10 +964,12 @@
   function renderShop() {
     const coins = game.profile.coins;
     $("shopCoins").innerHTML = coinPillHtml(coins);
+    $("stageName").textContent = whoName(shop.who);
+    renderWho("shopWho");
     const grid = $("hatGrid");
     grid.replaceChildren();
     HATS.forEach((hat) => {
-      const have = owns(hat.id);
+      const have = haveFor(hat.id, shop.who);
       const price = priceOf(hat);
       const card = document.createElement("div");
       card.className = `hat-card${shop.preview === hat.id ? " sel" : ""}`;
@@ -924,7 +980,7 @@
       name.textContent = hat.tier === "found" && !have ? "? ? ?" : hat.name;
       const act = document.createElement("button");
       act.type = "button";
-      if (have && worn() === hat.id) { act.className = "hat-act on"; act.textContent = "⭐ Wearing"; }
+      if (have && wornBy(shop.who) === hat.id) { act.className = "hat-act on"; act.textContent = "⭐ Wearing"; }
       else if (have) { act.className = "hat-act wear"; act.textContent = "👒 Wear"; }
       else if (hat.tier === "found") { act.className = "hat-act soon"; act.textContent = "Found in rainbow bubbles"; }
       else if (coins >= price) { act.className = "hat-act buy"; act.textContent = `Buy · ${price} 🪙`; }
@@ -935,24 +991,25 @@
       grid.appendChild(card);
     });
     const shown = HAT_BY_ID[shop.preview];
-    $("stageWear").textContent = !shown ? "No hat on" : owns(shown.id) ? `Wearing: ${shown.name}` : `Trying on: ${shown.name} (not yours yet)`;
+    $("stageWear").textContent = !shown ? "No hat on" : haveFor(shown.id, shop.who) ? `Wearing: ${shown.name}` : `Trying on: ${shown.name} (not ${shop.who === "violet" ? "hers" : "yours"} yet)`;
   }
 
   function tryOn(id) {
     shop.preview = id;
     shop.hopAt = performance.now();
     const hat = HAT_BY_ID[id];
+    const who = shop.who === "violet" ? game.profile.friend.name : "you";
     if (hat.tier === "found" && !owns(id)) shopSay(`${hat.name}! ${hat.how}`);
-    else if (owns(id)) shopSay(`${hat.name}! It looks great on you!`);
+    else if (haveFor(id, shop.who)) shopSay(`${hat.name}! It looks great on ${who}!`);
     else shopSay(`Ooh, the ${hat.name}! It costs ${priceOf(hat)} coins.`);
     renderShop();
   }
 
   function hatAction(id) {
     const hat = HAT_BY_ID[id];
-    if (owns(id)) {
-      if (worn() === id) { game.profile.hats.wearing.me = null; shop.preview = null; shopSay("No hat today!"); }
-      else { game.profile.hats.wearing.me = id; shop.preview = id; shop.hopAt = performance.now(); chirp(); sparkle(4); shopSay(`${hat.name} on! Beautiful!`); }
+    if (haveFor(id, shop.who)) {
+      if (wornBy(shop.who) === id) { game.profile.hats.wearing[shop.who] = null; shop.preview = null; shopSay("No hat today!"); }
+      else { game.profile.hats.wearing[shop.who] = id; shop.preview = id; shop.hopAt = performance.now(); chirp(); sparkle(4); shopSay(`${hat.name} on! Beautiful!`); }
       saveProfile(); renderShop();
     } else if (hat.tier === "found") {
       tryOn(id);
@@ -982,13 +1039,22 @@
     const p = (performance.now() - shop.hopAt) / 900;
     let y = 172 + Math.sin(t * 2) * 5;
     if (p < 1) y -= Math.abs(Math.sin(p * Math.PI * 2)) * (calmMotion.matches ? 10 : 36) * (1 - p * .5);
-    drawDolphin(c, 196, y, COLORS[game.selectedColor].value, 1.9, p < 1 ? "cheer" : "happy", shop.preview);
+    const hat = (who) => (shop.who === who ? shop.preview : wornBy(who));
+    if (game.profile.friend.met) {
+      // both dolphins; the one being dressed gets the hop
+      const me = shop.who === "me", hop = (mine) => (mine === me && p < 1 ? "cheer" : "happy");
+      const lift = (mine) => (mine === me ? y - 172 : Math.sin(t * 2 + 1) * 5);
+      drawDolphin(c, 106, 178 + lift(true), COLORS[game.selectedColor].value, .98, hop(true), hat("me"));
+      drawDolphin(c, 286, 178 + lift(false), game.profile.friend.color, .98, hop(false), hat("violet"), true);
+    } else {
+      drawDolphin(c, 196, y, COLORS[game.selectedColor].value, 1.9, p < 1 ? "cheer" : "happy", shop.preview);
+    }
     requestAnimationFrame(shopStageLoop);
   }
 
   /* The counter. She pays by moving coins (drag or tap) onto the tray; each is counted aloud. No buzzers, no penalties. */
 
-  const pay = { hat: null, price: 0, gold: 0, reg: 0, trayGold: 0, trayReg: 0, placed: 0, drags: 0, prompts: 0, trades: 0, started: 0, done: false, timer: 0, running: false, mood: "happy", drag: null };
+  const pay = { hat: null, who: "me", price: 0, gold: 0, reg: 0, trayGold: 0, trayReg: 0, placed: 0, drags: 0, prompts: 0, trades: 0, started: 0, done: false, timer: 0, running: false, mood: "happy", drag: null };
   const trayValue = () => pay.trayGold * ECONOMY.goldValue + pay.trayReg;
 
   function paySay(text, speakIt = true, spoken = text) {
@@ -999,7 +1065,7 @@
   function openPay(id) {
     const hat = HAT_BY_ID[id];
     const { gold, reg } = coinSplit(game.profile.coins);
-    Object.assign(pay, { hat, price: priceOf(hat), gold, reg, trayGold: 0, trayReg: 0, placed: 0, drags: 0, prompts: 0, trades: 0, started: performance.now(), done: false, mood: "happy", drag: null });
+    Object.assign(pay, { hat, who: shop.who, price: priceOf(hat), gold, reg, trayGold: 0, trayReg: 0, placed: 0, drags: 0, prompts: 0, trades: 0, started: performance.now(), done: false, mood: "happy", drag: null });
     $("payTitle").textContent = `Pay for your ${hat.name}`;
     $("payOverlay").classList.remove("hidden");
     $("payOverlay").scrollTop = 0;
@@ -1016,7 +1082,7 @@
     pay.drag = null;
     $("payOverlay").classList.add("hidden");
     if ("speechSynthesis" in window) speechSynthesis.cancel();
-    shop.preview = worn() === pay.hat?.id ? pay.hat.id : shop.preview;
+    shop.preview = wornBy(shop.who) === pay.hat?.id ? pay.hat.id : shop.preview;
     renderShop();
   }
 
@@ -1149,7 +1215,7 @@
     // Spending is the only way coins ever go down.
     game.profile.coins -= pay.price;
     if (!owns(id)) game.profile.collection.owned.push(id);
-    game.profile.hats.wearing.me = id;
+    game.profile.hats.wearing[pay.who] = id;
     game.profile.stats.payments += 1;
     saveProfile();
     logAttempt({
@@ -1163,7 +1229,7 @@
     paySay(`Paid! Enjoy your new ${pay.hat.name}!`, true, `${pay.price}. Paid! Enjoy your new ${pay.hat.name}!`); // the last coin is counted too
     $("payCoins").innerHTML = coinPillHtml(game.profile.coins);
     shop.hopAt = performance.now() + 900;
-    setTimeout(() => { closePay(); shop.preview = id; shop.hopAt = performance.now(); shopSay(`${pay.hat.name} on! You look amazing!`, false); }, 2200);
+    setTimeout(() => { closePay(); shop.preview = id; shop.hopAt = performance.now(); shopSay(`${pay.hat.name} on! ${pay.who === "violet" ? `${game.profile.friend.name} looks amazing!` : "You look amazing!"}`, false); }, 2200);
   }
 
   function payLoop(now) {
@@ -1230,6 +1296,7 @@
 
   function renderTreasures() {
     $("treasureCoins").innerHTML = coinPillHtml(game.profile.coins);
+    renderWho("treasureWho");
     const shelf = $("treasureShelf");
     shelf.replaceChildren();
     const seen = new Set(game.profile.collection.seenNew);
@@ -1239,19 +1306,19 @@
       if (have) found += 1;
       const item = document.createElement("button");
       item.type = "button";
-      item.className = `treasure${have ? "" : " missing"}${have && worn() === hat.id ? " on" : ""}`;
+      item.className = `treasure${have ? "" : " missing"}${have && wornBy(shop.who) === hat.id ? " on" : ""}`;
       const icon = hatCanvas();
       drawHatIcon(icon, hat.id, !have);
       const name = document.createElement("b");
       name.textContent = have ? hat.name : "? ? ?";
       const small = document.createElement("small");
-      small.textContent = have ? (worn() === hat.id ? "⭐ Wearing" : "Tap to wear") : hat.how || "In the hat shop!";
+      small.textContent = have ? (wornBy(shop.who) === hat.id ? "⭐ Wearing" : "Tap to wear") : hat.how || "In the hat shop!";
       item.append(icon, name, small);
       if (have && !seen.has(hat.id)) item.insertAdjacentHTML("beforeend", '<div class="ribbon">NEW!</div>');
       if (have) item.addEventListener("click", () => {
-        game.profile.hats.wearing.me = worn() === hat.id ? null : hat.id;
+        game.profile.hats.wearing[shop.who] = wornBy(shop.who) === hat.id ? null : hat.id;
         saveProfile();
-        if (worn()) { chirp(); speak(hat.name); }
+        if (wornBy(shop.who)) { chirp(); speak(hat.name); }
         renderTreasures();
       });
       else item.disabled = true;
@@ -1274,6 +1341,108 @@
     banner.textContent = text;
     banner.classList.remove("hidden");
     banner.style.animation = "none"; void banner.offsetWidth; banner.style.animation = "";
+  }
+
+  /* ---------- Meet Violet ---------- */
+
+  const meet = { running: false, t0: 0, landed: false, hiAt: -1e9, leaving: false };
+  const LEAP_MS = 1900;
+  const shouldMeetViolet = () => !game.profile.friend.met && game.profile.stars >= ECONOMY.meetVioletStars;
+
+  function openMeet() {
+    // She is marked as met right away, so closing the app half way never repeats it.
+    game.profile.friend.met = true;
+    if (!game.profile.hats.wearing.violet) game.profile.hats.wearing.violet = VIOLET_OWN_HAT;
+    saveProfile();
+    Object.assign(meet, { t0: performance.now(), landed: false, hiAt: -1e9, leaving: false });
+    $("meetSay").textContent = "";
+    $("meetHi").classList.add("hidden");
+    showScreen("meetScreen");
+    if (!meet.running) { meet.running = true; requestAnimationFrame(meetLoop); }
+  }
+
+  function meetLanded() {
+    meet.landed = true;
+    chirp();
+    const text = `Hi, ${game.name}! I'm ${game.profile.friend.name}!`;
+    $("meetSay").textContent = `${text} 💗`;
+    speak(text);
+    setTimeout(() => $("meetHi").classList.remove("hidden"), 900);
+  }
+
+  function meetSayHi() {
+    if (meet.leaving) return;
+    meet.leaving = true;
+    meet.hiAt = performance.now();
+    $("meetHi").classList.add("hidden");
+    const text = `Hi, ${game.profile.friend.name}! Let's swim together!`;
+    $("meetSay").textContent = text;
+    speak(text);
+    sparkle(7);
+    setTimeout(() => {
+      const note = game.justMastered === null; // a mastery banner on the map is more important than this note
+      showMap();
+      if (note) mapNote(`💗 ${game.profile.friend.name} is your new friend! She will swim with you.`);
+    }, 2600);
+  }
+
+  function meetLoop(now) {
+    if ($("meetScreen").classList.contains("hidden")) { meet.running = false; return; }
+    const cv = $("meetCanvas"), c = cv.getContext("2d");
+    c.setTransform(1.5, 0, 0, 1.5, 0, 0);
+    const W = 1100, H = 600, t = now / 1000, age = now - meet.t0, surface = 360;
+    const calm = calmMotion.matches;
+    // sky above, sea below
+    const sky = c.createLinearGradient(0, 0, 0, surface);
+    sky.addColorStop(0, "#e9fdff"); sky.addColorStop(1, "#b8fcff");
+    c.fillStyle = sky; c.fillRect(0, 0, W, surface);
+    const sea = c.createLinearGradient(0, surface, 0, H);
+    sea.addColorStop(0, "#20d4eb"); sea.addColorStop(.5, "#0797ce"); sea.addColorStop(1, "#034f98");
+    c.fillStyle = sea; c.fillRect(0, surface, W, H - surface);
+    c.globalAlpha = .12; c.fillStyle = "white";
+    for (let i = 0; i < 8; i++) { const x = 40 + i * 140 + Math.sin(t + i) * 12; c.beginPath(); c.moveTo(x, surface); c.lineTo(x + 40, surface); c.lineTo(x + 150, H); c.lineTo(x + 90, H); c.fill(); }
+    c.globalAlpha = 1;
+    c.strokeStyle = "rgba(255,255,255,.8)"; c.lineWidth = 5; c.beginPath();
+    for (let x = 0; x <= W; x += 18) { const y = surface + Math.sin(x * .025 + t * 2) * 6; if (x === 0) c.moveTo(x, y); else c.lineTo(x, y); }
+    c.stroke();
+
+    // Violet leaps up from below the surface, arcs over, and lands beside Piper
+    const u = Math.min(1, age / LEAP_MS);
+    const restX = 790, restY = 440;
+    let vx = 700 + (restX - 700) * u, vy = 600 + (restY - 600) * u - Math.sin(u * Math.PI) * 310, tilt = 0;
+    if (u < 1) tilt = calm ? 0 : -.75 + 1.3 * u;
+    else { vx = restX; vy = restY + Math.sin(t * 2.4) * 6; tilt = 0; }
+    if (u >= 1 && !meet.landed) meetLanded();
+
+    const piperHop = now - meet.hiAt < 900 ? Math.sin((now - meet.hiAt) / 900 * Math.PI) * 60 : 0;
+    drawDolphin(c, 300, 450 + Math.sin(t * 2) * 6 - piperHop, COLORS[game.selectedColor].value, 2, meet.landed ? "cheer" : "happy", worn());
+    c.save(); c.translate(vx, vy); c.rotate(tilt);
+    drawDolphin(c, 0, 0, game.profile.friend.color, 2, u < 1 || meet.landed ? "cheer" : "happy", wornBy("violet"), true);
+    c.restore();
+
+    // splashes where she leaves and lands the sea
+    const splash = (ageMs, x) => {
+      if (ageMs < 0 || ageMs > 900) return;
+      c.fillStyle = "rgba(255,255,255,.9)";
+      for (let i = 0; i < 14; i++) {
+        const a = Math.PI * (1.05 + i * .066), p = ageMs / 900, r = 40 + (i % 4) * 24 + p * 70;
+        c.globalAlpha = 1 - p;
+        c.beginPath(); c.arc(x + Math.cos(a) * r * 1.2, surface + Math.sin(a) * r * 1.5 + p * p * 60, 5 + (i % 3) * 2, 0, Math.PI * 2); c.fill();
+      }
+      c.globalAlpha = 1;
+    };
+    splash(age, 700);
+    splash(age - LEAP_MS, restX);
+
+    // hearts and sparkles once she has landed
+    if (meet.landed) {
+      c.textAlign = "center"; c.font = "900 40px sans-serif";
+      [[640, 200, "♥", "#ff8fc8"], [930, 170, "✦", "#ffd83d"], [520, 150, "✦", "#ffd83d"], [880, 250, "♥", "#ff8fc8"]].forEach(([x, y, ch, color], i) => {
+        c.globalAlpha = .5 + .5 * Math.abs(Math.sin(t * 2 + i)); c.fillStyle = color; c.fillText(ch, x, y - ((t * 20 + i * 15) % 40));
+      });
+      c.globalAlpha = 1;
+    }
+    requestAnimationFrame(meetLoop);
   }
 
   /* ---------- the dolphin coach ---------- */
@@ -1426,13 +1595,17 @@
       glow: Array.from({ length: 34 }, () => ({ x: Math.random() * VIEW_W, y: 80 + Math.random() * 480, r: 3 + Math.random() * 5, phase: Math.random() * 6 })),
       wake: [],
       world: 0,
-      flash: 0
+      flash: 0,
+      // Violet swims beside her once they have met, and now and then finds a coin.
+      violet: game.profile.friend.met ? { y: lanes[1] + 78, found: 0, nextAt: ECONOMY.violetFirstAt, cheerUntil: 0, popAt: -1e9 } : null
     };
+    game.violetFound = 0;
     $("raceIsland").textContent = AREAS[game.areaIndex].name;
     $("raceCoins").textContent = "0";
     $("raceCallout").textContent = portrait ? "Tap left or right to swim!" : "Swipe or use ↑ ↓ to swim!";
     $("raceCallout").style.opacity = "1";
-    setTimeout(() => { if (game.race?.active) $("raceCallout").style.opacity = "0"; }, 2800);
+    clearTimeout(game.calloutTimer);
+    game.calloutTimer = setTimeout(() => { if (game.race?.active) $("raceCallout").style.opacity = "0"; }, 2800);
     requestAnimationFrame(raceLoop);
   }
 
@@ -1453,6 +1626,7 @@
   function updateRace(dt) {
     const race = game.race;
     race.playerY += (race.targetY - race.playerY) * Math.min(1, dt * 9);
+    if (race.violet) updateViolet(race, dt);
     const speed = 255 + game.boost * 32;
     race.world += speed * dt;
     if (Math.random() < dt * 24) {
@@ -1480,6 +1654,41 @@
     });
     race.objects = race.objects.filter((obj) => obj.x > -90 && !obj.hit);
     race.flash += race.flash > 0 ? -dt : race.flash < 0 ? dt : 0;
+  }
+
+  // Violet keeps beside Piper (on the roomier side of the lane) a little behind her, and finds a coin every so often.
+  function updateViolet(race, dt) {
+    const v = race.violet;
+    const target = race.playerY + (race.playerY < race.lanes[1] ? 78 : -78);
+    v.y += (target - v.y) * Math.min(1, dt * 3.5); // she follows with a gentle lag
+    const seconds = (performance.now() - race.started) / 1000;
+    if (v.found < ECONOMY.violetMaxCoins && seconds >= v.nextAt) {
+      v.found += 1;
+      v.nextAt += ECONOMY.violetEvery;
+      v.popAt = performance.now();
+      v.cheerUntil = v.popAt + 900;
+      game.roundCoins += 1;
+      game.violetFound = v.found;
+      coinPing();
+      $("raceCallout").textContent = `💗 ${game.profile.friend.name} found a coin!`;
+      $("raceCallout").style.opacity = "1";
+      clearTimeout(game.calloutTimer);
+      game.calloutTimer = setTimeout(() => { if (game.race?.active) $("raceCallout").style.opacity = "0"; }, 1800);
+    }
+  }
+
+  function drawViolet(race, now) {
+    const v = race.violet, t = performance.now();
+    const cheer = t < v.cheerUntil;
+    const x = 150 + Math.sin(now * 1.3) * 8, y = v.y + Math.sin(now * 4.2 + 1) * 4;
+    drawDolphin(ctx, x, y, game.profile.friend.color, .95, cheer ? "cheer" : "happy", wornBy("violet"), true);
+    const age = (t - v.popAt) / 1000;
+    if (age >= 0 && age < 1) { // a little "+1" floats up from her
+      ctx.save(); ctx.translate(x + 10, y - 70 - age * 40); if (portrait) ctx.rotate(Math.PI / 2);
+      ctx.globalAlpha = 1 - age; ctx.fillStyle = "white"; ctx.strokeStyle = "#ff62a3"; ctx.lineWidth = 5; ctx.font = "900 30px sans-serif"; ctx.textAlign = "center";
+      ctx.strokeText("+1", 0, 0); ctx.fillText("+1", 0, 0);
+      ctx.restore();
+    }
   }
 
   function spawnPath() {
@@ -1554,6 +1763,7 @@
     });
     ctx.globalAlpha = 1;
     drawSpeedLines(game.boost, now);
+    if (race.violet) drawViolet(race, now);
     drawDolphin(ctx, 245, race.playerY + Math.sin(now * 5) * 4, COLORS[game.selectedColor].value, 1.14, "happy", worn());
 
     if (race.flash) {
@@ -1704,7 +1914,7 @@
     ctx.restore();
   }
 
-  function drawDolphin(c, x, y, color, scale = 1, mood = "happy", hat = null) {
+  function drawDolphin(c, x, y, color, scale = 1, mood = "happy", hat = null, lashes = false) {
     c.save(); c.translate(x, y); c.scale(scale, scale);
     c.shadowColor = "rgba(0,34,80,.28)"; c.shadowBlur = 16; c.shadowOffsetY = 9;
     const body = c.createLinearGradient(0, -50, 0, 38);
@@ -1729,6 +1939,11 @@
     } else {
       c.beginPath(); c.arc(54, -2, 10, .2, 1.6); c.stroke();
     }
+    if (lashes) { // Violet: long lashes and a rosy cheek
+      c.strokeStyle = "#7a1e3d"; c.lineWidth = 2.6; c.lineCap = "round";
+      [[36, -21, 32, -27], [40, -22, 40, -29.5], [44, -21, 47.5, -27]].forEach(([x1, y1, x2, y2]) => { c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); });
+      c.fillStyle = "rgba(255,70,130,.38)"; c.beginPath(); c.ellipse(46, -4, 6.5, 4.2, 0, 0, Math.PI * 2); c.fill();
+    }
     if (hat) drawHat(c, hat);
     c.restore();
   }
@@ -1747,9 +1962,9 @@
     game.profile.coins += game.roundCoins;
     saveProfile();
     if (game.justMastered === AREAS.length - 1) { setTimeout(finishGame, 800); return; }
-    $("raceCallout").textContent = `Great swimming! ${game.roundCoins} coins!`;
+    $("raceCallout").textContent = `Great swimming! ${game.roundCoins} coins!${game.violetFound ? ` 💗 ${game.profile.friend.name} found ${game.violetFound}.` : ""}`;
     $("raceCallout").style.opacity = "1";
-    setTimeout(() => showMap(true), 1300);
+    setTimeout(() => { if (shouldMeetViolet()) openMeet(); else showMap(true); }, 1300);
   }
 
   function finishGame() {
@@ -2066,10 +2281,11 @@
     if (shopOpen()) openShop();
     else mapNote(`Master ${AREAS[0].name} to open the hat shop!`);
   });
-  $("treasuresButton").addEventListener("click", openTreasures);
+  $("treasuresButton").addEventListener("click", () => { shop.who = "me"; openTreasures(); });
   $("shopBack").addEventListener("click", () => { if ("speechSynthesis" in window) speechSynthesis.cancel(); showMap(); });
   $("treasuresBack").addEventListener("click", () => { if ("speechSynthesis" in window) speechSynthesis.cancel(); showMap(); });
   $("shopToTreasures").addEventListener("click", openTreasures);
+  $("meetHi").addEventListener("click", meetSayHi);
   $("payCancel").addEventListener("click", closePay);
   $("tradeButton").addEventListener("click", payTrade);
   $("payOverlay").addEventListener("pointerdown", coinDown);
@@ -2167,6 +2383,7 @@
 
   layoutRace();
   initColors();
+  backfillStars();
   // Come back to where she left off: straight to the map if she has played before.
   if (Object.keys(game.profile.facts).length || Object.keys(game.profile.done).length) showMap();
   if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {

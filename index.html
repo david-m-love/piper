@@ -50,7 +50,10 @@
             <p class="eyebrow">ISLAND MAP</p>
             <h2 id="mapTitle">Bubbles's adventure</h2>
           </div>
-          <div class="mile-pill"><span aria-hidden="true">🪙</span> <strong id="mapCoins">0</strong> coins</div>
+          <div class="map-pills">
+            <div class="mile-pill" title="Stars: one for every island mastered"><span aria-hidden="true">⭐</span> <strong id="mapStars">0</strong></div>
+            <div class="mile-pill"><span aria-hidden="true">🪙</span> <strong id="mapCoins">0</strong> coins</div>
+          </div>
         </div>
         <div id="mapBanner" class="map-banner hidden" aria-live="polite"></div>
         <div class="map-shortcuts">
@@ -125,6 +128,7 @@
             <canvas id="shopStage" width="768" height="600" aria-label="Your dolphin trying on a hat"></canvas>
             <div id="stageName" class="stage-name"></div>
             <div id="stageWear" class="stage-wear"></div>
+            <div id="shopWho" class="who hidden" role="radiogroup" aria-label="Who is trying on hats"></div>
             <div id="stageSay" class="speech"></div>
             <button id="shopToTreasures" class="big-button" type="button"><span class="big-button-icon" aria-hidden="true">🧺</span>My Treasures</button>
           </div>
@@ -139,8 +143,16 @@
           <div id="treasureCoins" class="mile-pill coin-pill"></div>
         </div>
         <div class="treasure-card">
+          <div id="treasureWho" class="who hidden" role="radiogroup" aria-label="Who is wearing hats"></div>
           <div id="treasureShelf" class="treasure-shelf"></div>
         </div>
+      </section>
+
+      <section id="meetScreen" class="screen meet-screen hidden" aria-live="polite">
+        <div class="meet-banner">🎉 You made a new friend!</div>
+        <canvas id="meetCanvas" width="1650" height="900" aria-label="A pink dolphin named Violet leaps out of the sea to meet you"></canvas>
+        <div id="meetSay" class="speech meet-say"></div>
+        <button id="meetHi" class="big-button primary hidden" type="button"><span class="big-button-icon" aria-hidden="true">👋</span>Say hi!</button>
       </section>
 
       <section id="finishScreen" class="screen finish-screen hidden" aria-live="polite">

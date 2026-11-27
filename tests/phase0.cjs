@@ -98,7 +98,7 @@ async function playToRace(page, island) {
     check(JSON.stringify(saved.facts) === JSON.stringify(fx.facts), "facts unchanged");
     check(saved.coins === 137 && saved.correct === 212 && saved.name === "Piper" && saved.color === 2 && saved.music === false, "coins, name, color, counts, music setting unchanged");
     check(JSON.stringify(saved.mysteryField) === '{"keep":"me"}', "unknown fields are kept");
-    check(saved.stars === 0 && saved.worldsUnlocked[0] === "sunny-sea" && saved.collection && saved.shop && saved.playToday && saved.friend.met === false && saved.theater.unlocked === false && saved.stats.swims === 0 && saved.hats.wearing, "new v3 fields have defaults");
+    check(saved.stars === 4 && saved.starLog.length === 4 && saved.worldsUnlocked[0] === "sunny-sea" && saved.collection && saved.shop && saved.playToday && saved.friend.met === false && saved.theater.unlocked === false && saved.stats.swims === 0 && saved.hats.wearing, "new v3 fields have defaults (the 4 mastered islands are already worth 4 stars)");
     check(await page.locator(".island.done").count() === 4 && (await page.locator(".island.current strong").textContent()).includes("Pirate Wreck"), "map shows 4 mastered, Pirate Wreck current");
     const noMarker = (markup) => markup.replace(/<span class="marker"[^>]*>.*?<\/span>/g, "").replace(/<canvas class="marker"[^>]*><\/canvas>/g, "");
     const html = noMarker(await page.innerHTML("#islandList"));
@@ -193,7 +193,7 @@ async function playToRace(page, island) {
     page = page2;
     await page.evaluate(() => {
       const p = JSON.parse(localStorage.getItem("piperDolphinMath2"));
-      p.stars = 5; p.collection.owned = ["flower-crown"]; p.theater.unlocked = true; p.friend.met = true; p.hats.wearing.me = "flower-crown";
+      p.stars = 5; p.starLog = ["bubble-bay", "coral-cove", "shell-shore", "kelp-forest"].map((id) => ({ t: 1, source: "area", id })); p.collection.owned = ["flower-crown"]; p.theater.unlocked = true; p.friend.met = true; p.hats.wearing.me = "flower-crown";
       localStorage.setItem("piperDolphinMath2", JSON.stringify(p));
     });
     await page.reload();
