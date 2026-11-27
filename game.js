@@ -1614,7 +1614,8 @@
     game.violetFound = 0;
     $("raceIsland").textContent = AREAS[game.areaIndex].name;
     $("raceCoins").textContent = "0";
-    $("raceCallout").textContent = portrait ? "Tap left or right to swim!" : "Swipe or use ↑ ↓ to swim!";
+    // A phone or iPad has no arrow keys: say "tap the water". A computer keeps the arrow-key hint.
+    $("raceCallout").textContent = window.matchMedia("(hover: none) and (pointer: coarse)").matches || portrait ? "Tap the water to swim there!" : "Swipe or use ↑ ↓ to swim!";
     $("raceCallout").style.opacity = "1";
     clearTimeout(game.calloutTimer);
     game.calloutTimer = setTimeout(() => { if (game.race?.active) $("raceCallout").style.opacity = "0"; }, 2800);
@@ -2140,9 +2141,10 @@
   function setLaneFromPointer(event) {
     if (!game.race?.active) return;
     const rect = canvas.getBoundingClientRect();
-    const y = (event.clientY - rect.top) * VIEW_H / rect.height;
+    // Wherever she touches the water is where she swims: across the picture when it is upright (the lanes run left to right), up and down when it is wide.
+    const across = portrait ? (event.clientX - rect.left) * VIEW_H / rect.width : (event.clientY - rect.top) * VIEW_H / rect.height;
     const before = game.race.targetY;
-    game.race.targetY = game.race.lanes.reduce((best, lane) => Math.abs(lane - y) < Math.abs(best - y) ? lane : best);
+    game.race.targetY = game.race.lanes.reduce((best, lane) => Math.abs(lane - across) < Math.abs(best - across) ? lane : best);
     if (game.race.targetY !== before) splash();
   }
 
@@ -2455,27 +2457,9 @@
   $("jumpButton").addEventListener("click", (event) => { if (event.detail === 0) doJump(); });
   $("moveUp").addEventListener("click", () => moveLane(-1));
   $("moveDown").addEventListener("click", () => moveLane(1));
-  // Upright phone: tap the left or right half to swim one lane that way, or swipe sideways. Otherwise the dolphin follows her finger.
-  let touch = null;
-  canvas.addEventListener("pointerdown", (event) => {
-    if (portrait) touch = { x: event.clientX, y: event.clientY, moved: false };
-    else setLaneFromPointer(event);
-  });
-  canvas.addEventListener("pointermove", (event) => {
-    if (!portrait) { if (event.buttons) setLaneFromPointer(event); return; }
-    if (!touch || touch.moved) return;
-    const dx = event.clientX - touch.x;
-    if (Math.abs(dx) > 24 && Math.abs(dx) > Math.abs(event.clientY - touch.y)) { touch.moved = true; moveLane(dx > 0 ? 1 : -1); }
-  });
-  canvas.addEventListener("pointerup", (event) => {
-    if (!portrait || !touch) return;
-    const wasSwipe = touch.moved;
-    touch = null;
-    if (wasSwipe) return;
-    const rect = canvas.getBoundingClientRect();
-    moveLane(event.clientX < rect.left + rect.width / 2 ? -1 : 1);
-  });
-  canvas.addEventListener("pointercancel", () => { touch = null; });
+  // Touch the water to swim there (tap a coin and she goes to its lane), or slide a finger and she follows. Upright or wide.
+  canvas.addEventListener("pointerdown", setLaneFromPointer);
+  canvas.addEventListener("pointermove", (event) => { if (event.buttons) setLaneFromPointer(event); });
   window.addEventListener("resize", () => {
     if (!$("raceScreen").classList.contains("hidden") && (window.innerHeight > window.innerWidth) !== portrait) layoutRace();
   });

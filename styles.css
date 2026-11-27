@@ -430,3 +430,43 @@ canvas#payDolphin { background: transparent; aspect-ratio: auto; width: 150px; h
 .race-controls .jump-button.nudge { animation: jumpNudge .5s ease-in-out infinite alternate; }
 @keyframes jumpNudge { to { transform: scale(1.06); box-shadow: 0 6px 0 #b91f57, 0 0 0 8px rgba(255,216,61,.75); } }
 @media (max-width: 760px) { .race-controls .jump-button { font-size: 24px; } }
+
+/* ===== Phones (Phase 5) =====
+   A phone has no use for steering buttons: she touches the water to swim there. Only the big Jump button stays. */
+@media (hover: none) and (pointer: coarse) and (max-width: 500px), (hover: none) and (pointer: coarse) and (max-height: 500px) {
+  #moveUp, #moveDown, .race-hint { display: none; }
+  .race-controls { grid-template-columns: 1fr; max-width: 520px; }
+}
+
+/* A phone held wide is only about 370-430 px tall, so the game screens re-arrange to fit with nothing cut off. */
+@media (max-height: 520px) and (orientation: landscape) {
+  /* the swim: the water takes all the height there is, the Jump button sits beside it */
+  .race-screen { display: grid; grid-template-columns: auto auto; grid-template-rows: auto 1fr; justify-content: center; align-items: center; column-gap: 14px; padding: 2px 12px 6px; }
+  .race-screen .race-status { grid-column: 1 / -1; margin: 0 auto 2px; gap: 14px; }
+  .race-screen .race-status .stat strong { font-size: 22px; }
+  .race-screen .race-status .timer { padding: 2px 20px; }
+  .race-screen .race-status .timer strong { font-size: 22px; }
+  .race-screen .canvas-wrap { grid-column: 1; grid-row: 2; width: calc((100dvh - 48px - env(safe-area-inset-top) - 62px) * 1100 / 620); max-width: calc(100vw - 210px); border-width: 4px; }
+  .race-screen .race-controls { grid-column: 2; grid-row: 2; width: 170px; margin: 0; grid-template-columns: 1fr; }
+
+  /* the math: question on the left, the equation beside it, the four answers in one big row underneath */
+  .math-screen { padding: 4px 14px 8px; }
+  .math-screen .race-status.compact-status { margin-bottom: 2px; padding: 0 5px; }
+  .math-card { max-width: 920px; display: grid; grid-template-columns: 1fr 1fr; column-gap: 20px; row-gap: 4px; align-items: center; padding: 8px 20px 10px; border-radius: 24px; }
+  .math-card .round-row { grid-column: 1 / -1; }
+  .math-card .coach { grid-column: 1; grid-row: 2; margin: 0; }
+  .math-card .equation { grid-column: 2; grid-row: 2; margin: 0; font-size: 56px; }
+  .math-card .tokens { grid-column: 1 / -1; grid-row: 3; margin: 0; min-height: 26px; }
+  .math-card .token { width: 22px; height: 22px; }
+  .math-card .answers, .math-card .type-answer { grid-column: 1 / -1; grid-row: 4; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .math-card .answer-button { min-height: var(--tap-min); font-size: 34px; border-width: 3px; }
+  .math-card .boost-wrap { grid-column: 1 / -1; grid-row: 5; margin-top: 2px; }
+  .math-card .boost-label { margin-bottom: 3px; }
+
+  /* meeting Violet: the picture on the left, what she says and the button on the right */
+  .meet-screen { display: grid; grid-template-columns: auto 250px; grid-template-rows: auto 1fr auto; justify-content: center; column-gap: 16px; row-gap: 8px; padding: 4px 14px 8px; }
+  .meet-screen .meet-banner { grid-column: 1 / -1; padding: 4px 18px; font-size: 20px; }
+  .meet-screen canvas { grid-column: 1; grid-row: 2 / 4; width: auto; max-width: calc(100vw - 300px); height: calc(100dvh - 48px - env(safe-area-inset-top) - 62px); align-self: start; }
+  .meet-screen .meet-say { grid-column: 2; grid-row: 2; align-self: center; min-height: 0; font-size: 20px; padding: 10px 14px; }
+  .meet-screen .big-button { grid-column: 2; grid-row: 3; align-self: start; min-width: 0; width: 100%; }
+}
